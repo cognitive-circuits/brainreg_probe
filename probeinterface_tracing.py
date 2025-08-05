@@ -502,8 +502,8 @@ def main():
 
 
 
-if __name__ == "__main__":
-    reg, result = main()
+#if __name__ == "__main__":
+#    reg, result = main()
     
     
     
@@ -567,3 +567,193 @@ def plot_signal_3d_interactive(signal_data, signal_threshold, max_points=5000):
 
 ## ChatGPT version
 
+import numpy as np
+import pandas as pd
+from scipy.optimize import minimize
+from scipy.spatial import KDTree
+import plotly.graph_objects as go
+import probeinterface as pi
+from sklearn.cluster import KMeans
+from skimage.filters import threshold_otsu
+from sklearn.decomposition import PCA
+
+def get_test_signal_data():
+    filepath = Path(r"D:\explore_exploit\data\raw_data\histology\TA_G_03_01__06_04__08\EX06\anat\allen_mouse_10um\2\downsampled.tiff")
+    signal_data = tifffile.imread(filepath)  # Load your actual file
+    return signal_data
+
+
+
+# 1. Standardize orientation
+def standardize_orientation(data: np.ndarray, orientation: str = 'psl') -> np.ndarray:
+    axis_map = {'p': 0, 'a': 0, 's': 1, 'i': 1, 'l': 2, 'r': 2}
+    flips = {'a', 'i', 'r'}
+    axes = [axis_map[c] for c in orientation]
+    data = np.transpose(data, axes)
+    for i, c in enumerate(orientation):
+        if c in flips:
+            data = np.flip(data, axis=i)
+    return data
+
+# 2. Threshold signal via gamma+Otsu
+def threshold_signal_gamma(data: np.ndarray,
+                           brain_mask: np.ndarray = None,
+                           gamma: float = 1.5) -> np.ndarray:
+    norm = data.astype(np.float32)
+    norm -= norm.min(); norm /= norm.max()
+    corr = norm ** gamma
+    mask = brain_mask if brain_mask is not None else np.ones_like(corr, bool)
+    thresh = threshold_otsu(corr[mask])
+    return (corr > thresh) & mask
+
+# 3. Build signal DataFrame
+def make_signal_df(data: np.ndarray, mask: np.ndarray) -> pd.DataFrame:
+    coords = np.argwhere(mask)
+    values = data[mask]
+    df = pd.DataFrame(coords, columns=['x','y','z'])
+    df['value'] = values
+    return df[['value','x','y','z']]
+
+# 4. Get probe 2D contacts
+def get_probe_contacts_df(manufacturer: str = 'imec', probe_name: str = 'NP2014') -> pd.DataFrame:
+    probe = pi.get_probe(manufacturer=manufacturer, probe_name=probe_name)
+    df = pd.DataFrame(probe.contact_positions, columns=['2d_x','2d_y'])
+    df['value'] = 1
+    return df
+
+# 5. Cluster signal points
+def cluster_signal(df: pd.DataFrame, n_clusters: int,
+                  bias_axis: str = 'z', bias_factor: int = 2) -> pd.DataFrame:
+    coords = df[['x','y','z']].values.copy()
+    ax = {'x':0,'y':1,'z':2}[bias_axis]
+    coords[:,ax] *= bias_factor
+    df['cluster'] = KMeans(n_clusters=n_clusters, random_state=0).fit_predict(coords)
+    return df
+
+# 6. Fit plane to signal via PCA
+def fit_plane_to_signal(signal_df: pd.DataFrame) -> dict:
+    """
+    Fit a 2D plane to 3D points using PCA.
+    Returns dict with centroid, normal, u_axis, v_axis.
+    """
+    points = signal_df[['x','y','z']].values
+    centroid = np.median(points,axis=0)
+    centered = points - centroid
+    pca = PCA(n_components=3)
+    pca.fit(centered)
+    # normal: least variance direction
+    normal = pca.components_[-1]
+    u_axis = pca.components_[0]
+    v_axis = pca.components_[1]
+    return {'centroid': centroid,
+            'normal': normal,
+            'u_axis': u_axis,
+            'v_axis': v_axis}
+
+
+# 7. Transform 2d probe contacts before projection
+def transform_2d_probe(points_df: pd.DataFrame, params: np.ndarray, voxel_size_um = 10) -> pd.DataFrame:
+    """
+    Transform 2D probe contacts by rotating and translating.
+    points_df: DataFrame with '2d_x', '2d_y' columns.
+    params: [offset_u, offset_v, theta]
+    """
+    off_x, off_y, theta, probe_depth = params  # transformation parameters
+    transformed_df = points_df.copy() #scale by the voxel size in micrometers
+    transformed_df = transformed_df[transformed_df['2d_y'] <= probe_depth]/voxel_size_um  # filter by depth and then rescale
+    pts2d = transformed_df[['2d_x', '2d_y']].values.astype(float)
+    # Center the probe points before rotation
+    pts2d[:, 0] -= pts2d[:, 0].max() / 2  # center x
+    pts2d[:, 1] -= pts2d[:, 1].max() / 2  # center y
+    R2 = np.array([[np.cos(theta), -np.sin(theta)],
+                   [np.sin(theta), np.cos(theta)]])
+    pts_rot = pts2d @ R2.T
+    pts_rot[:, 0] += off_x  # x offset
+    pts_rot[:, 1] += off_y  # y offset
+    transformed_df[['2d_x', '2d_y']] = pts_rot
+    return transformed_df
+
+
+# 8. Project 2D contacts onto plane (in-plane mapping)
+def project_2d_points_to_plane(points_df: pd.DataFrame,
+                               plane_info: dict,) -> np.ndarray:
+    """
+    Map 2D contacts by rotating and translating in plane axes.
+    points_df: DataFrame with '2d_x', '2d_y' columns.
+    params: [offset_u, offset_v, theta]
+    """
+   # Extract 2D coordinates
+    u_coords = points_df['2d_x'].values
+    v_coords = points_df['2d_y'].values
+    # Project onto 3D plane using the plane's coordinate system
+    # 3D_point = centroid + u_coord * u_axis + v_coord * v_axis
+    points_3d = (plane_info['centroid'][np.newaxis, :] + 
+                 u_coords[:, np.newaxis] * plane_info['u_axis'][np.newaxis, :] + 
+                 v_coords[:, np.newaxis] * plane_info['v_axis'][np.newaxis, :])
+    return pd.DataFrame(points_3d, columns=['x', 'y', 'z'])
+
+
+# 9. Optimize plane-aligned placement
+def optimize_probe_plane(signal_df: pd.DataFrame,
+                         probe_df: pd.DataFrame,
+                         plane: dict,
+                         initial_params: np.ndarray = None,
+                         bounds: list = None) -> dict:
+    sig_pts = signal_df[['x','y','z']].values
+    tree = KDTree(sig_pts)
+    if initial_params is None:
+        initial_params = np.array([0.0, 0.0, 0.0, 3000.0]) # [offset_x, offset_y, theta, probe_depth]
+    if bounds is None:
+        extent = np.ptp(sig_pts, axis=0).max()
+        bounds = [(-extent, extent), 
+                  (-extent, extent), 
+                  (-np.pi/2, np.pi/2),
+                  (500,6000)]
+    def cost(p):
+        points_2d = transform_2d_probe(probe_df, p)
+        coords = project_2d_points_to_plane(points_2d, plane)
+        dists, _ = tree.query(coords)
+        return np.sum(dists)
+    res = minimize(cost, initial_params, bounds=bounds, options = {'maxiter': 1000, 'maxls': 1000})
+    transformed_points = transform_2d_probe(probe_df, res.x)
+    fitted = project_2d_points_to_plane(transformed_points, plane)
+    return {'result': res, 'coords': fitted}
+
+# 9. Interactive 3D Plot
+def plot_3d(signal_df: pd.DataFrame,
+            probe_coords: np.ndarray = None,
+            max_points: int = 5000):
+    df = signal_df.copy()
+    if len(df) > max_points:
+        df = df.sample(max_points, random_state=0)
+    fig = go.Figure()
+    fig.add_trace(go.Scatter3d(x=df.x, y=df.y, z=df.z,
+                               mode='markers', marker=dict(size=2, opacity=0.6)))
+    if probe_coords is not None:
+        fig.add_trace(go.Scatter3d(x=probe_coords[:,0], 
+                                   y=probe_coords[:,1], 
+                                   z=probe_coords[:,2],
+                                   mode='markers', marker=dict(size=4, color='red')))
+    fig.update_layout(scene=dict(xaxis_title='X', yaxis_title='Y', zaxis_title='Z'))
+    fig.show()
+
+# 10. Demo: Fit PCA plane and plot
+if __name__ == '__main__':
+    signal_data = get_test_signal_data()
+    signal_data = standardize_orientation(signal_data, 'psl')
+    threshold_signal = threshold_signal_gamma(signal_data)
+    signal_df = make_signal_df(signal_data, threshold_signal)
+    signal_df = cluster_signal(signal_df, n_clusters=2)
+    signal_df1 = signal_df[signal_df['cluster'] == 1]
+    probe_df = get_probe_contacts_df()
+    plane = fit_plane_to_signal(signal_df1)
+    # sample points on plane
+    # sample_points = np.stack(np.meshgrid(np.arange(10),np.arange(10), indexing = 'xy')).reshape(-1,100).T - 5
+    #points_df = pd.DataFrame(sample_points, columns=['2d_x', '2d_y'])
+    #points_3d = project_2d_points_to_plane(points_df, plane)
+    #plot_3d(signal_df, points_3d)
+    results = optimize_probe_plane(signal_df1,probe_df,plane)
+    if results['result'].success:
+        print("Optimization successful!")
+        print(f"Fitted parameters: {results['result'].x}")
+        plot_3d(signal_df1,results['coords'].values)
