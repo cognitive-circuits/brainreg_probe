@@ -14,7 +14,7 @@ from brainreg_probe import plot_util_func as puf
 
 ## Global variables ##
 RAW_HISTOLOGY_PATH = Path("../data/raw_data/histology")               # Contains /<subject_ID>/brainsaw_output
-PREPROCESSED_HISTOLOGY_PATH = Path("../data/preprocessed_data/brainreg")  # Will contain brainreg/<subject_ID>/<atlas_name>/outputs
+PREPROCESSED_BRAINREG_PATH = Path("../data/preprocessed_data/brainreg")  # Will contain brainreg/<subject_ID>/<atlas_name>/outputs
 JOBS_PATH = Path("./Jobs/brainreg")               # Stores SLURM scripts and logs
 for jobs_folder in ["slurm", "out", "err"]:
         if not (JOBS_PATH/jobs_folder).exists():
@@ -81,7 +81,7 @@ def get_brainreg_paths_df(raw_data_path = RAW_HISTOLOGY_PATH):
         #for each_channel in os.listdir(subject_histology_path):
         paths_dict['subject_ID'].append(each_subject)
         paths_dict['input_path'].append(subject_histology_path/str(REGISTRATION_CHANNEL))
-        paths_dict['output_path'].append(PREPROCESSED_HISTOLOGY_PATH/each_subject/ATLAS_NAME)
+        paths_dict['output_path'].append(PREPROCESSED_BRAINREG_PATH/each_subject/ATLAS_NAME)
         paths_dict['signal_path'].append(subject_histology_path/str(SIGNAL_CHANNEL))
         paths_dict['recipe_path'].append(list(paths_dict['input_path'][-1].parent.parent.glob("recipe*"))[0])
         paths_dict['brainreg_completed'].append(paths_dict['output_path'][-1].exists())

@@ -12,14 +12,40 @@ The following tutorial will be a step-by-step for processing histology data as e
 1. running brainreg (HPC cluster via SLURM)
 2. probeinterface tracing (HPC cluster via SLURM)
 
-We assume that the data is stored on a HPC server managed via SLURM. We recommend running the 
+We assume that the data is stored on a HPC server managed via SLURM. We recommend running the notebook for a smooth step-by-step walkthrough.
+The tutorial here is meant to supplement this notebook.
 
-## Step 0: installation
+## Step 0: installation and setup
 
-Set up a a conda environment called `histology` with all the required python packages:
-```conda create -f environment.yml ``` 
-which can be activated befor
-```conda activate histology ```
+Navigate to your code folder (see tip below) and clone the current repository:
+```git clone https://github.com/charlesdgburns/brainreg_probe.git ```
+
+Next, you want to set up a a [conda](https://www.anaconda.com/docs/getting-started/miniconda/install) environment called `histology` with all the required python packages:
+```
+conda create -f environment.yml 
+conda activate histology
+``` 
+
+
+>[!TIP]
+> All the code will run seamlessly if your data is organised as below. It should also be easy to change the directories in the scripts.
+>```
+>.
+>└── experiment/ 
+>    ├── code/    <-- (make this your working directory)
+>    │   └── brainreg_probe/  
+>    └── data/ 
+>        ├── raw_data/
+>        │   └── histology/    <-- (RAW_HISTOLOGY_PATH)
+>        │       └── <subject_ID>/
+>        │           └── <brainsaw outputs>
+>        └── preprocessed_data/
+>            └── brainreg/    <-- (PREPROCESSED_BRAINREG_PATH)
+>                └── <subject_ID>/ 
+>```
+
+In order to run the notebook or 
+``` ```
 
 ## Step 1: run brainreg
 
@@ -27,10 +53,12 @@ which can be activated befor
 
 Before running `brainreg` it is crucial to specify the orientation of the inputs. There's a helper function to check this:
 
-```from brainreg_probe import run_brainreg as rub
-rub.check_brain_orientations()```
+```
+from brainreg_probe import run_brainreg as rub  
+rub.check_brain_orientations() 
+```
 
-> [!Note] Let's reorient ourselves
+> [!NOTE] Let's reorient ourselves
 > 
 > Orientation of data is important here and can be confusing. Voxel data is a big 3D stack of images which can be indexed in each dimension. However, the dimension of the voxel data is not always ordered as X,Y,Z.
 >Brainreg output is reoriented to the allen brain atlas, which follows an image axis convention with origin at 'RAS', the right, anterior, superior corner. This corresponds to a brainglobe orientation of `asr` (if the brain is sliced along the anterior-posterior axis).
@@ -43,7 +71,10 @@ rub.check_brain_orientations()```
 >
 > The reason for this is that packages like `numpy` and `skimage` follow the same image data convention for data transfomrations (inhereting this convention from C++ image processing libraries).
 
-``` ```
+
+>[!TIP] 
+> Data orientation can also be checked with downsampled images entirely on remotely by plotting the first few images indexed from the first `data[z,:,:]` (try z values 0,100,200). You should be able to tell what 
+
 ---
 ## Step 2: run `brainreg`
 The conda environment should have brainreg 
