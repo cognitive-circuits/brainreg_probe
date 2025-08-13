@@ -49,12 +49,12 @@ conda activate histology
 In order to run the notebook or 
 ``` ```
 
-## Step 1: run brainreg
+## Step 1: run [brainreg](https://github.com/brainglobe/brainreg)
 
 >[!TIP] 
->Data orientation and signal channel assignment can also be checked locally using `napari`. See the section **Manual data check and annotations** below.
+>Data orientation and signal channel assignment can also be checked locally using [napari](https://napari.org/stable/). See the section **Manual data check and annotations** below.
 
-Before running `brainreg` it is crucial to specify the orientation of the inputs. There's a helper function to check this:
+Before running `brainreg` it is crucial to specify the orientation of the inputs. Please read the [brainglobe orientations docs](https://brainglobe.info/documentation/setting-up/image-definition.html). There's a helper function to check this:
 
 ```
 from brainreg_probe import run_brainreg as rub  
@@ -94,5 +94,4 @@ install `napari` following their [instructions](https://napari.org/dev/tutorials
 You may run `brainreg` on a local machine, making sure to use the following command:
 ```brainreg <input_path> <output_path> --additional <dye_channel_path> -v <Z voxel size> <Y voxel size> <X voxel size> --orientation <orientation> --atlas allen_mouse_10um --debug```
 
-We refer to [brainglobe orientations docs](https://brainglobe.info/documentation/setting-up/image-definition.html).
-
+We refer to
