@@ -17,8 +17,7 @@ import numpy as np
 import pandas as pd
 from pathlib import Path
 # plotting
-import plotly.graph_objects as go
-from matplotlib import pyplot as plt
+from brainreg_probe import plot_util_func as puf
 # probe info and fitting functions
 import probeinterface as pi
 from skimage.filters import threshold_otsu
@@ -32,7 +31,7 @@ from sklearn.cluster import DBSCAN
 TEST_ATLAS_PATH =  Path(r"../data/raw_data/histology/EX03/anat/allen_mouse_10um")
 
 EXAMPLE_IMPLANT_INFO = {'probe_depth':[None,]} 
-with open('./probe_auto_registration/allen_name2acronym.json', 'r') as f:
+with open('./brainreg_probe/allen_name2acronym.json', 'r') as f:
     ALLEN_NAMES2ACRONYM = json.load(f)
 
 #specify information about brainreg and probes in data.
@@ -70,9 +69,9 @@ def get_data(brainreg_atlas_path:Path, signal_channel = 2, control_channel = 3):
     control_channel = str(control_channel); signal_channel= str(signal_channel)
     data = {} #we want to output a structured data dictionary
     # NOTE: Signal_data is what we fit the probe geometry to
-    data.update({'signal_data' :tifffile.imread(brainreg_atlas_path/signal_channel/"downsampled.tiff")})
+    data.update({'signal_data' :tifffile.imread(brainreg_atlas_path/signal_channel/f"downsampled_{signal_channel}.tiff")})
     #data.update({'boundaries_data':tifffile.imread(brainreg_atlas_path/control_channel/"boundaries.tiff")})  # Load your actual file
-    data.update({'atlas_registration_data':tifffile.imread(brainreg_atlas_path/control_channel/"registered_atlas.tiff")}) #this is technically in sample space coordinates
+    data.update({'atlas_registration_data':tifffile.imread(brainreg_atlas_path/control_channel/"registered_atlas.tiff")}) #this is the atlas in sample space coordinates
     #data.update({'atlas_transformed_data':tifffile.imread(brainreg_atlas_path/control_channel/"downsampled_standard.tiff")})
     data.update({'volumes_df' :pd.read_csv(brainreg_atlas_path/control_channel/'volumes.csv')})
     # NOTE: loading data to transform 3D sample space coordinates to allan atlas coordinates
@@ -394,60 +393,6 @@ def sample_coords_to_allen_space(points_array:np.array,
     atlas_um = atlas_vox * voxel_size
     return atlas_um
  
-## Data Visualisation ##
-
-def plot_3d(signal_df: pd.DataFrame,
-            probe_coords: np.ndarray = None,
-            max_points: int = 5000,
-            fig: go.Figure = None):
-    df = signal_df.copy()
-    if len(df) > max_points:
-        df = df.sample(max_points, random_state=0)
-    if fig is None:
-        fig = go.Figure()
-    fig.add_trace(go.Scatter3d(x=df.x, y=df.y, z=df.z,
-                               mode='markers', marker=dict(size=2, opacity=0.6)))
-    if probe_coords is not None:
-        fig.add_trace(go.Scatter3d(x=probe_coords[:,0], 
-                                   y=probe_coords[:,1], 
-                                   z=probe_coords[:,2],
-                                   mode='markers', marker=dict(size=4, color='red')))
-    fig.update_layout(scene=dict(xaxis_title='X', yaxis_title='Y', zaxis_title='Z'))
-    fig.show()
-
-def adjust_contrast(image, percentile_low=1,percentile_high = 99):
-    """Set the contrast, useful for viewng sample data slices at probe centroid"""
-     # Convert to float if needed
-    if image.dtype != np.float64:
-        image = image.astype(np.float64)
-    # Calculate percentiles
-    p_low, p_high = np.percentile(image, (percentile_low, percentile_high))
-    # Clip and rescale
-    image_stretched = np.clip(image, p_low, p_high)
-    image_stretched = (image_stretched - p_low) / (p_high - p_low)
-    return image_stretched
-
-def plot_sample_data_sections(signal_data, plane_centroid, ax= None):
-    '''Plot sagittal and coronal sections of the signal data,
-    centered the centroid of the plane fit to the probe signal data.'''
-    saggital = signal_data[:,:,int(plane_centroid[2])].T
-    coronal = signal_data[int(plane_centroid[0]),:,:]
-    #transverse = data['signal_data'][:,plane_centroid[1],:] #rarely used, but here in case
-    #adjust contrast
-    sagittal = adjust_contrast(saggital)
-    coronal = adjust_contrast(coronal)
-    if ax is None:
-        fig, ax = plt.subplots(1,2, figsize =(10,3), width_ratios = [1.5,1])
-    ax[0].imshow(sagittal,cmap='gray')
-    ax[0].axis('off')
-    ax[0].xaxis.set_inverted(True)
-    ax[0].set(title = 'Sagittal section')
-
-    ax[1].imshow(coronal,cmap = 'gray')
-    ax[1].axis('off')
-    ax[1].set(title = 'Coronal section')
-    return fig
-
 # 10. Demo: Fit PCA plane and plot
 if __name__ == '__main__':
     data = get_data(TEST_ATLAS_PATH)
@@ -456,7 +401,7 @@ if __name__ == '__main__':
     signal_df = cluster_signal(signal_df, n_clusters=2)
     signal_df1 = signal_df[signal_df['cluster'] == 1]
     probe_df = get_probe_contacts_df()
-    fig = go.Figure()
+    fig = puf.go.Figure()
     for cluster in [0,1]:
         signal_cluster_df = signal_df[signal_df['cluster'] == cluster]
         plane = fit_plane_to_signal(signal_cluster_df)
@@ -468,4 +413,4 @@ if __name__ == '__main__':
         results = optimize_probe_plane(signal_cluster_df,probe_df,plane)
         if results['result'].success:
             print(f"Fitted parameters: {results['result'].x}")
-            plot_3d(signal_cluster_df,results['coords'].values, fig=fig)
+            puf.plot_3d(signal_cluster_df,results['coords'].values, fig=fig)

@@ -1,12 +1,16 @@
 '''A script to send jobs to HPC cluster via SLURM for parallel processing of brainreg.
-
+Code here also included to check orientation from downsampled stacks.
 @charlesdgburns'''
 
 ## setup ## 
 import os
 import sys
 import pandas as pd
-from pathlib import Path, PurePosixPath
+from pathlib import Path
+#to check data orientation:
+import tifffile 
+import matplotlib.pyplot as plt
+from brainreg_probe import plot_util_func as puf
 
 ## Global variables ##
 RAW_HISTOLOGY_PATH = Path("../data/raw_data/histology")               # Contains /<subject_ID>/brainsaw_output
@@ -20,10 +24,12 @@ ATLAS_NAME = 'allen_mouse_10um'
 # specify subjects here as a list, otherwise assume that they are subdirs to raw_histology_path
 SUBJECT_IDS = [p.stem for p in RAW_HISTOLOGY_PATH.iterdir()]
 # MAKE SURE TO CHECK THE RAW DATA ORIENTATION ON NAPARI. OPTION HERE TO SPECIFY PER SUBJECT.
+# PLEASE RUN  'check_brain_orientations()' in accordance with brainglobe image space definition.
 SUBJECT_ID2ORIENTATION = {each_subject:'psl' for each_subject in SUBJECT_IDS}
 # SELECT CHANNELS: usually 2 is red, 3 is green, 4 is blue.
 SIGNAL_CHANNEL = 2 #this is the channel with probe dye in it
 REGISTRATION_CHANNEL = 3 #this is the channel we want to register to; green is less flourescent than red and less noisy than blue.
+
 
 ## top level function ##
 def run_brainreg(overwrite = False):
@@ -40,7 +46,25 @@ def run_brainreg(overwrite = False):
         os.system(f"sbatch {script_path}")
     print("All brainreg jobs submitted to HPC. Check progress with 'squeue -u <username>'")
 
-    
+
+## subfunctions ##
+
+def check_brain_orientations():
+    for subject_ID in SUBJECT_IDS:
+        subject_path = RAW_HISTOLOGY_PATH/subject_ID
+        downsampled_files = [x for x in (subject_path/'downsampled_stacks/025_micron').iterdir() if '.tif' in str(x)]
+        data = tifffile.imread(downsampled_files[0])
+        first_axis_coords = [0,50,100,200]
+        fig, ax = plt.subplots(1,len(first_axis_coords), figsize = (10, 10*len(first_axis_coords)))
+        for i, first_idx in enumerate(first_axis_coords):
+            contrast_adjusted = puf.adjust_contrast(data[first_idx])
+            ax[i].imshow(contrast_adjusted, cmap = 'gray')
+            ax[i].set_title(f'{subject_ID} | data[{first_idx},:,:]')
+            ax[i].scatter(0,0, color='red', s=100, zorder=3)
+        fig.tight_layout()
+        plt.show()
+
+
 def get_brainreg_paths_df(raw_data_path = RAW_HISTOLOGY_PATH):
 
     #initialise dataframe as a dictionary
@@ -65,7 +89,6 @@ def get_brainreg_paths_df(raw_data_path = RAW_HISTOLOGY_PATH):
 
     return pd.DataFrame(paths_dict)
     
-## subfunctions ##
 
 def get_brainreg_SLURM_script(br_info, RAM="64GB", time_limit="23:59:00"):
     """
@@ -111,13 +134,5 @@ def get_voxel_sizes(recipe_path):
             return params["VoxelSize"]
         except yaml.YAMLError as exc:
             print(exc)
-
-    
-#module load miniconda
-
-#conda deactivate
-#conda deactivate
-#conda deactivate
-#conda activate histology
 
     
