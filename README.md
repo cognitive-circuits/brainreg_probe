@@ -18,7 +18,9 @@ The tutorial here is meant to supplement this notebook.
 ## Step 0: installation and setup
 
 Navigate to your code folder (see tip below) and clone the current repository:
-```git clone https://github.com/charlesdgburns/brainreg_probe.git ```
+```
+git clone https://github.com/charlesdgburns/brainreg_probe.git
+```
 
 Next, you want to set up a a [conda](https://www.anaconda.com/docs/getting-started/miniconda/install) environment called `histology` with all the required python packages:
 ```
@@ -28,7 +30,7 @@ conda activate histology
 
 
 >[!TIP]
-> All the code will run seamlessly if your data is organised as below. It should also be easy to change the directories in the scripts.
+> All the code will run seamlessly if your data is organised as below. Otherwise please change the paths in the scripts.
 >```
 >.
 >└── experiment/ 
@@ -58,8 +60,8 @@ from brainreg_probe import run_brainreg as rub
 rub.check_brain_orientations() 
 ```
 
-> [!NOTE] Let's reorient ourselves
-> 
+> [!NOTE] 
+> **Let's reorient ourselves**
 > Orientation of data is important here and can be confusing. Voxel data is a big 3D stack of images which can be indexed in each dimension. However, the dimension of the voxel data is not always ordered as X,Y,Z.
 >Brainreg output is reoriented to the allen brain atlas, which follows an image axis convention with origin at 'RAS', the right, anterior, superior corner. This corresponds to a brainglobe orientation of `asr` (if the brain is sliced along the anterior-posterior axis).
 >
@@ -70,10 +72,8 @@ rub.check_brain_orientations()
 > | Right → Left | `rl` | `[2]` or `k` | **X** | `data[:, :, x]` |
 >
 > The reason for this is that packages like `numpy` and `skimage` follow the same image data convention for data transfomrations (inhereting this convention from C++ image processing libraries).
+> To avoid confusion with `X`, `Y`, `Z` ordering in the output, we refer to `downsample_coords` in voxel data dimension order `i`, `j`, `k`.
 
-
->[!TIP] 
-> Data orientation can also be checked with downsampled images entirely on remotely by plotting the first few images indexed from the first `data[z,:,:]` (try z values 0,100,200). You should be able to tell what 
 
 ---
 ## Step 2: run `brainreg`
