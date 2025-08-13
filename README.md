@@ -51,7 +51,8 @@ In order to run the notebook or
 
 ## Step 1: run brainreg
 
->[!TIP] Data orientation and signal channel assignment can also be checked locally using `napari`. See the section **Manual data check and annotations** below.
+>[!TIP] 
+>Data orientation and signal channel assignment can also be checked locally using `napari`. See the section **Manual data check and annotations** below.
 
 Before running `brainreg` it is crucial to specify the orientation of the inputs. There's a helper function to check this:
 
