@@ -32,19 +32,42 @@ from sklearn.cluster import DBSCAN
 TEST_ATLAS_PATH =  Path(r"../data/raw_data/histology/EX03/anat/allen_mouse_10um")
 
 EXAMPLE_IMPLANT_INFO = {'probe_depth':[None,]} 
-with open('./probeinterface_tracing/allen_name2acronym.json', 'r') as f:
+with open('./probe_auto_registration/allen_name2acronym.json', 'r') as f:
     ALLEN_NAMES2ACRONYM = json.load(f)
+
+#specify information about brainreg and probes in data.
+EXAMPLE_INPUT_DICT = { 'brainreg_signal_channel':2,
+                        'brainreg_control_channel':3,
+                        #specifying probe information allowing for multiple probes.
+                        'probe_ordering_axis':'ap',
+                        'probe_names':['ProbeA','ProbeB'],
+                        'insertion_axis':['si','si'],
+                        'contact_facing_axis':['rl','lr'],
+                        'probeinterface_dicts':[{'manufacturer':'imec','name':'NP2020'},
+                                               {'manufacturer':'imec','name':'NP2020'}],
+                        
+                        }
 
 ## Top level function ##
 def get_probe_registration_df(brainreg_atlas_path: Path,
-                       probeinterface_probe: object,
+                       input_dict: dict,
                        plot_fit: bool = True):
+    n_probes = len(input_dict['probe_names'])
+    
+    data = get_data(brainreg_atlas_path, 
+                    signal_channel = input_dict['brainreg_signal_channel'],
+                    control_channel= input_dict['brainreg_control_channel'])
+    threshold_signal = threshold_signal_gamma(data['signal_data'])
+    signal_df = make_signal_df(data['signal_data'], threshold_signal)
+    signal_df = cluster_signal(signal_df, n_clusters=n_probes)
+    #relabel the 
     return None
 
 ## Subfunctions ##
 
 # 0. load necessary data
-def get_data(brainreg_atlas_path, signal_channel = '2', control_channel = '3'):
+def get_data(brainreg_atlas_path:Path, signal_channel = 2, control_channel = 3):
+    control_channel = str(control_channel); signal_channel= str(signal_channel)
     data = {} #we want to output a structured data dictionary
     # NOTE: Signal_data is what we fit the probe geometry to
     data.update({'signal_data' :tifffile.imread(brainreg_atlas_path/signal_channel/"downsampled.tiff")})
@@ -273,8 +296,9 @@ def compute_cost(signal_df: pd.DataFrame,
     #find distance to nearest neighbours
     signal2contact_dist, _ = probe_tree.query(signal_df[['x', 'y', 'z']].values, k=1)
     contact2signal_dist, _ = signal_tree.query(coords, k=1)
-    balanced_cost = np.sum(contact2signal_dist)/len(coords)+np.sum(signal2contact_dist*signal_df['norm_value'].values)/len(signal_df)
-    return balanced_cost  # weighted by signal value *signal_df['norm_value'].values
+    distance_cost = np.sum(contact2signal_dist)/len(coords)+np.sum(signal2contact_dist*signal_df['norm_value'].values)/len(signal_df)
+    #TODO: could add a cost for fitting a set of known probe channel -> brain area matches (based on LFP) {probe_coord : brain_area}.
+    return distance_cost
 
 # 9. estimate initial parameters for optimization:
 def estimate_initial_params(signal_df: pd.DataFrame, probe_df:pd.DataFrame, plane: dict,
@@ -319,8 +343,8 @@ def optimize_probe_plane(signal_df: pd.DataFrame,
                                         }) -> dict:
     if initial_params is None:
         initial_params = estimate_initial_params(signal_df,probe_df, plane)
-    def cost(p): #must be given as a function of parameters
-        return compute_cost(signal_df, probe_df, plane, p) #turn parameter values into dict again
+    def cost(param_values): #must be given as a function of a list of parameter values
+        return compute_cost(signal_df, probe_df, plane, param_values)
     res = minimize(cost, 
                    x0 = list(initial_params.values()), 
                    bounds=list(bounds.values()), 
@@ -365,12 +389,12 @@ def sample_coords_to_allen_space(points_array:np.array,
         map_coordinates(data['deformation_field_1'], coords, order=1),
         map_coordinates(data['deformation_field_2'], coords, order=1),
     ], axis=1)
-
+    #the transformed voxels are displaced.
     atlas_vox = affine_vox_atlas + disp
     atlas_um = atlas_vox * voxel_size
     return atlas_um
  
-# Visualisation: Interactive 3D Plot
+## Data Visualisation ##
 
 def plot_3d(signal_df: pd.DataFrame,
             probe_coords: np.ndarray = None,
@@ -407,14 +431,13 @@ def plot_sample_data_sections(signal_data, plane_centroid, ax= None):
     '''Plot sagittal and coronal sections of the signal data,
     centered the centroid of the plane fit to the probe signal data.'''
     saggital = signal_data[:,:,int(plane_centroid[2])].T
-    coronal = data['signal_data'][int(plane_centroid[0]),:,:]
+    coronal = signal_data[int(plane_centroid[0]),:,:]
     #transverse = data['signal_data'][:,plane_centroid[1],:] #rarely used, but here in case
     #adjust contrast
     sagittal = adjust_contrast(saggital)
     coronal = adjust_contrast(coronal)
     if ax is None:
         fig, ax = plt.subplots(1,2, figsize =(10,3), width_ratios = [1.5,1])
-    fig, ax = plt.subplots(1,2, figsize = (10,3), width_ratios=[1.5,1])
     ax[0].imshow(sagittal,cmap='gray')
     ax[0].axis('off')
     ax[0].xaxis.set_inverted(True)
