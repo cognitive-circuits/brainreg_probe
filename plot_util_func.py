@@ -9,6 +9,7 @@ from matplotlib import pyplot as plt
 import pandas as pd
 import numpy as np
 
+import brainglobe_heatmap as bgh
 
 ## functions ##
 
@@ -21,7 +22,7 @@ def plot_3d(signal_df: pd.DataFrame,
         df = df.sample(max_points, random_state=0)
     if fig is None:
         fig = go.Figure()
-    fig.add_trace(go.Scatter3d(x=df.x, y=df.y, z=df.z,
+    fig.add_trace(go.Scatter3d(x=df.i, y=df.j, z=df.k,
                                mode='markers', marker=dict(size=2, opacity=0.6)))
     if probe_coords is not None:
         fig.add_trace(go.Scatter3d(x=probe_coords[:,0], 
@@ -43,23 +44,64 @@ def adjust_contrast(image, percentile_low=1,percentile_high = 99):
     image_stretched = (image_stretched - p_low) / (p_high - p_low)
     return image_stretched
 
-def plot_sample_data_sections(signal_data, plane_centroid, ax= None):
+def plot_sample_data_sections(signal_data, plane_centroid,fig_and_axes= None, fix_contrast = True):
     '''Plot sagittal and coronal sections of the signal data,
     centered the centroid of the plane fit to the probe signal data.'''
-    saggital = signal_data[:,:,int(plane_centroid[2])].T
+    sagittal = signal_data[:,:,int(plane_centroid[2])].T
     coronal = signal_data[int(plane_centroid[0]),:,:]
     #transverse = data['signal_data'][:,plane_centroid[1],:] #rarely used, but here in case
-    #adjust contrast
-    sagittal = adjust_contrast(saggital)
-    coronal = adjust_contrast(coronal)
-    if ax is None:
-        fig, ax = plt.subplots(1,2, figsize =(10,3), width_ratios = [1.5,1])
-    ax[0].imshow(sagittal,cmap='gray')
-    ax[0].axis('off')
-    ax[0].xaxis.set_inverted(True)
-    ax[0].set(title = 'Sagittal section')
+    if fix_contrast:
+        sagittal = adjust_contrast(sagittal)
+        coronal = adjust_contrast(coronal)
+    if fig_and_axes is None:
+        fig, axes = plt.subplots(1,2, figsize =(10,3), width_ratios = [1.5,1])
+    else:
+        fig, axes = fig_and_axes
+    axes[0].imshow(sagittal,cmap='gray')
+    axes[0].axis('off')
+    axes[0].set(title = 'Sagittal section')
 
-    ax[1].imshow(coronal,cmap = 'gray')
-    ax[1].axis('off')
-    ax[1].set(title = 'Coronal section')
+    axes[1].imshow(coronal,cmap = 'gray')
+    axes[1].axis('off')
+    axes[1].set(title = 'Coronal section')
+    return fig
+
+def plot_atlas_data_sections(probe_atlas_coords, probe_plane_centroid, voxel_size = 10,
+                             fig_and_axes:tuple = None):
+    probe_plane_centroid
+    if fig_and_axes is None:
+        fig, axes = plt.subplots(1, 2, figsize=(10, 5))
+    else:
+        fig, axes = fig_and_axes
+    values = dict(HPF=0.1,CA1=1)
+    scene1 = bgh.Heatmap(
+        values,
+        position=probe_plane_centroid,
+        orientation="sagittal",  # or 'sagittal', or 'horizontal' or a tuple (x,y,z)
+        title="Sagittal section",
+        hemisphere="left",
+        cmap="Blues",
+        vmin=0,
+        vmax=2,
+        format="2D",
+    ).plot_subplot(fig, axes[0])
+    axes[0].scatter(probe_atlas_coords[:,0]-probe_plane_centroid[0], 
+                    probe_atlas_coords[:,1]-probe_plane_centroid[1], 
+                    color='red',alpha=0.01)
+
+    scene2 = bgh.Heatmap(
+        values,
+        position=probe_plane_centroid,
+        orientation="frontal",  # or 'sagittal', or 'horizontal' or a tuple (x,y,z)
+        title="Coronal section",
+        hemisphere="left",
+        cmap="Blues",
+        vmin=0,
+        vmax=2,
+        format="2D",
+    ).plot_subplot(fig, axes[1])
+    axes[1].scatter(probe_atlas_coords[:,2]-probe_plane_centroid[2], 
+                    probe_atlas_coords[:,1]-probe_plane_centroid[1],
+                    color='red',alpha=0.01)
+    fig.tight_layout()
     return fig

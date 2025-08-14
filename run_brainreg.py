@@ -55,13 +55,16 @@ def check_brain_orientations():
         downsampled_files = [x for x in (subject_path/'downsampled_stacks/025_micron').iterdir() if '.tif' in str(x)]
         data = tifffile.imread(downsampled_files[0])
         first_axis_coords = [0,50,100,200]
-        fig, ax = plt.subplots(1,len(first_axis_coords), figsize = (10, 10*len(first_axis_coords)))
+        fig, ax = plt.subplots(1,len(first_axis_coords), figsize = ( 3*len(first_axis_coords),3))
         for i, first_idx in enumerate(first_axis_coords):
             contrast_adjusted = puf.adjust_contrast(data[first_idx])
             ax[i].imshow(contrast_adjusted, cmap = 'gray')
             ax[i].set_title(f'{subject_ID} | data[{first_idx},:,:]')
             ax[i].scatter(0,0, color='red', s=100, zorder=3)
         fig.tight_layout()
+        save_path = (PREPROCESSED_BRAINREG_PATH/subject_ID/'orientation_check.png')
+        fig.savefig(save_path)
+        print(f'Saved plot to: {save_path}')
         plt.show()
 
 

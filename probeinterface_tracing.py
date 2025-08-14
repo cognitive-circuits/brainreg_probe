@@ -31,8 +31,8 @@ from sklearn.cluster import DBSCAN
 TEST_ATLAS_PATH =  Path(r"../data/raw_data/histology/EX03/anat/allen_mouse_10um")
 
 EXAMPLE_IMPLANT_INFO = {'probe_depth':[None,]} 
-with open('./brainreg_probe/allen_name2acronym.json', 'r') as f:
-    ALLEN_NAMES2ACRONYM = json.load(f)
+#with open('./brainreg_probe/allen_brain_atlas_info.htsv', 'r') as f:
+ALLEN_ATLAS_INFO_DF = pd.read_csv('./brainreg_probe/allen_brain_atlas_info.htsv', sep='\t')
 
 #specify information about brainreg and probes in data.
 EXAMPLE_INPUT_DICT = { 'brainreg_signal_channel':2,
@@ -46,22 +46,20 @@ EXAMPLE_INPUT_DICT = { 'brainreg_signal_channel':2,
                         
                         }
 
-AXIS2ATLAS_VECTOR = {'ap':[1,0,0],'si':[0,1,0],'rl':[0,0,1], # axes in 3D space acccording to 'psl' orientation.
-                'pa':[-1,0,0],'is':[0,-1,0],'lr':[0,0,-1]} #inverses
+AXIS2ATLAS_VECTOR = {'ap':[1,0,0],'si':[0,1,0],'rl':[0,0,1], # axes in 3D space acccording to 'asr' orientation.
+                     'pa':[-1,0,0],'is':[0,-1,0],'lr':[0,0,-1]} #inverses
 
 ## Top level function ##
-def get_probe_registration_df(brainreg_atlas_path: Path,
+def get_probe_registration_df(data: dict,
                        input_dict: dict,
                        plot_fit: bool = True):
     probe_info = input_dict['probe_info']
     n_probes = len(probe_info)
-    print(f'Loading data ...')
-    data = get_data(brainreg_atlas_path, 
-                    signal_channel = input_dict['brainreg_signal_channel'],
-                    control_channel= input_dict['brainreg_control_channel'])
-    print(f'Thresholding and clustering signal into {n_probes} clusters')
+    # get data here when tested
+    print(f'Thresholding signal...')
     threshold_signal = threshold_signal_gamma(data['signal_data'])
     signal_df = make_signal_df(data['signal_data'], threshold_signal)
+    print(f'Clustering signal into {n_probes} clusters...')
     signal_df = cluster_signal(signal_df, n_clusters=n_probes)
     ordered_clusters = reorder_signal_clusters(signal_df,input_dict['probe_ordering_axis'])
     probe_dfs = []
@@ -78,32 +76,32 @@ def get_probe_registration_df(brainreg_atlas_path: Path,
                                            longer_than_wider)
         best_params_dict = optimize_probe_plane(signal_cluster_df,probe_df,fitted_plane)
         transformed_points = transform_2d_probe(probe_df, best_params_dict.values())
-        downsampled_coords = project_2d_points_to_plane(transformed_points, plane)
+        downsampled_coords = project_2d_points_to_plane(transformed_points, fitted_plane)
         #return the coordinates in downsampled space 
         #now append coords to the dataframe
-        probe_df = probe_df[probe_df['probe_coords.y']<probe_fit['params']['probe_depth']]
-        probe_df['downsample_coords.i'] = probe_fit['coords'].values[:,0]
-        probe_df['downsample_coords.j'] = probe_fit['coords'].values[:,1]
-        probe_df['downsample_coords.k'] = probe_fit['coords'].values[:,2]
-        atlas_coords = sample_coords_to_allen_space(probe_fit['coords'].values, data)
+        probe_df = probe_df[probe_df['probe_coords.y']<best_params_dict['probe_depth']]
+        probe_df['downsample_coords.i'] = downsampled_coords.values[:,0]
+        probe_df['downsample_coords.j'] = downsampled_coords.values[:,1]
+        probe_df['downsample_coords.k'] = downsampled_coords.values[:,2]
+        atlas_coords = sample_coords_to_allen_space(downsampled_coords.values, data)
         probe_df['allen_atlas_coords.i'] = atlas_coords[:,0]
         probe_df['allen_atlas_coords.j'] = atlas_coords[:,1]
         probe_df['allen_atlas_coords.k'] = atlas_coords[:,2]
         # and finally, the labels
-        volume_ids, structure_names,acronyms = get_structure_labels(probe_fit['coords'].values, data)
+        volume_ids, structure_names,acronyms = get_structure_labels(downsampled_coords.values, data)
         probe_df['structure.name'] = structure_names
         probe_df['structure.acronym'] = acronyms
-        probe_df['probe_name'] = input_dict['probe_names'][each_probe]
+        probe_df['probe_name'] = probe_info[each_probe]['label']
         
         #save out the data
-        probe_df_path = (brainreg_atlas_path.parent)/f"{probe_info[each_probe]['label']}_anatomy.htsv"
-        probe_df.to_csv(probe_df_path,sep='\t', index=False)
-        params_path = (brainreg_atlas_path.parent)/f"{probe_info[each_probe]['label']}_fit_params.json"
-        with open(params_path, 'w') as f:
-            json.dump(probe_fit['params'], f)
+        #probe_df_path = (brainreg_atlas_path.parent)/f"{probe_info[each_probe]['label']}_anatomy.htsv"
+        #probe_df.to_csv(probe_df_path,sep='\t', index=False)
+        #params_path = (brainreg_atlas_path.parent)/f"{probe_info[each_probe]['label']}_fit_params.json"
+        #with open(params_path, 'w') as f:
+        #    json.dump(probe_fit['params'], f)
         #append to lists
         probe_dfs.append(probe_df)
-        fit_params.append(probe_fit['params'])
+        fit_params.append(best_params_dict)
     return probe_dfs, fit_params
 
 ## Subfunctions ##
@@ -121,7 +119,7 @@ def get_data(brainreg_atlas_path:Path, signal_channel = 2, control_channel = 3):
     # NOTE: loading data to transform 3D sample space coordinates to allan atlas coordinates
     for i in range(3):
         data.update({f'deformation_field_{i}': tifffile.imread(brainreg_atlas_path/f"deformation_field_{i}.tiff")})
-    data.update({'affine_matrix':np.loadtxt(brainreg_atlas_path/"niftyreg/affine_matrix.txt")})
+    data.update({'affine_matrix':np.loadtxt(brainreg_atlas_path/"niftyreg/invert_affine_matrix.txt")})
     return data
 
 # 1. Threshold signal via gamma+Otsu
@@ -407,37 +405,33 @@ def get_structure_labels(points_array:np.array, data:dict):
     acronyms = []
     for each_coord in points_array:
         int_coords = [int(x) for x in each_coord]
-        volume_ids.append(data['atlas_registration_data'][int_coords[0],int_coords[1],int_coords[2]])
-        if volume_ids[-1]< len(data['volumes_df']):
-            structure_names.append(data['volumes_df'].iloc[volume_ids[-1]].structure_name)
-            acronyms.append(ALLEN_NAMES2ACRONYM[structure_names[-1]])
-        else:
+        volume_id = (data['atlas_registration_data'][int_coords[0],int_coords[1],int_coords[2]])
+        try:
+            info = ALLEN_ATLAS_INFO_DF.query(f'id=={volume_id}')
+            volume_ids.append(info.id.item())
+            structure_names.append(info.name.item())
+            acronyms.append(info.acronym.item())
+        except Exception as e:
             structure_names.append('outside brain')
             acronyms.append(np.nan)
+            volume_ids.append(np.nan)
+            print(f'Failed to get info. assuming outside brain\n {e}')
+            continue
+            
     return volume_ids, structure_names, acronyms
 
 
 # 12. transform sample space to allen space
-def sample_coords_to_allen_space(points_array:np.array, 
-                                 data:dict,
-                                 voxel_size:int = 10):
+def sample_coords_to_allen_space(points:np.array, 
+                                 data:dict,):
     '''Not super trivial transformation from sample coordinates to allen coords.'''
-    # 1. apply affine transformation
-    affine = data['affine_matrix'] # 4×4 matrix
-    pts_homog = np.hstack([ points_array[:, ::-1],  # (z,y,x) → (x,y,z)
-                            np.ones((len(points_array), 1))])
-    affine_out = (affine @ pts_homog.T).T  # (N,4)
-    affine_vox_atlas = affine_out[:, :3][:, ::-1]  # back to (z,y,x) for deformation
-    # 2. apply deformation field
-    coords = [affine_vox_atlas[:,i] for i in range(3)]
-    disp = np.stack([
-        map_coordinates(data['deformation_field_0'], coords, order=1),
-        map_coordinates(data['deformation_field_1'], coords, order=1),
-        map_coordinates(data['deformation_field_2'], coords, order=1),
-    ], axis=1)
-    #the transformed voxels are displaced.
-    atlas_vox = affine_vox_atlas + disp
-    atlas_um = atlas_vox * voxel_size
+    def_fields = [data[f'deformation_field_{x}'] for x in range(3)]
+    atlas_mm = []
+    for point in points:
+        atlas_mm.append([def_fields[0][int(point[0]),int(point[1]),int(point[2])],
+                        def_fields[1][int(point[0]),int(point[1]),int(point[2])],
+                        def_fields[2][int(point[0]),int(point[1]),int(point[2])]])
+    atlas_um = np.array(atlas_mm)*1000
     return atlas_um
  
 # 10. Demo: Fit PCA plane and plot
