@@ -87,8 +87,8 @@ def plot_atlas_data_sections(probe_atlas_coords, probe_plane_centroid, voxel_siz
     ).plot_subplot(fig, axes[0])
     axes[0].scatter(probe_atlas_coords[:,0]-probe_plane_centroid[0], 
                     probe_atlas_coords[:,1]-probe_plane_centroid[1], 
-                    color='red',alpha=0.01)
-
+                    color='red',alpha=0.05, s=1)
+    
     scene2 = bgh.Heatmap(
         values,
         position=probe_plane_centroid,
@@ -102,6 +102,8 @@ def plot_atlas_data_sections(probe_atlas_coords, probe_plane_centroid, voxel_siz
     ).plot_subplot(fig, axes[1])
     axes[1].scatter(probe_atlas_coords[:,2]-probe_plane_centroid[2], 
                     probe_atlas_coords[:,1]-probe_plane_centroid[1],
-                    color='red',alpha=0.01)
+                    color='red',alpha=0.05, s=1)
+    
+    [x.axis('off') for x in axes]
     fig.tight_layout()
     return fig
