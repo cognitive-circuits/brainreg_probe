@@ -8,7 +8,7 @@ This is done by fitting probe geometry loaded from [probe interface](https://git
 
 > *Example output*: probe_df.htsv, a multi-index pandas dataframe:
 > 
->|     | probe_coords<br>x      y | allen_atlas_coords<br>i      j      k | structure <br> name    acronym id|
+>|     | probe_coords<br>x <img width=200/> y | allen_atlas_coords<br>i      j      k | structure <br> name    acronym id|
 >|:---:|:------------------:|:----------------------------:|:-----------------------------:|
 >| ... | ... | ... | ... |
 >| 450 | 0.0  3375.0 | 7323  2111  7693 | Field CA1     CA1  382 |
@@ -16,7 +16,7 @@ This is done by fitting probe geometry loaded from [probe interface](https://git
 >| 453 | 32.0  3390.0 | 7355  2097 7686 | Field CA1      CA1  382 |
 >| 454 | 0.0  3405.0 | 7323  2070 7702 | Field CA1      CA1  382 |
 >| 455 | 32.0  3405.0 | 7355  2070 7692 | Field CA1      CA1  382 |
-?| ... | ... | ... | ... |
+>| ... | ... | ... | ... |
 
 >
 ---

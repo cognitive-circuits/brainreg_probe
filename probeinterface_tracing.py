@@ -488,9 +488,10 @@ def get_structure_labels(points_array:np.array, data:dict):
         volume_id = (data['atlas_registration_data'][int_coords[0],int_coords[1],int_coords[2]])
         try:
             info = ALLEN_ATLAS_INFO_DF.query(f'id=={volume_id}')
-            anatomy_dict['id'].append(info['id'])
-            anatomy_dict['name'].append(info['name'])
-            anatomy_dict['acronym'].append(info['acronym'])
+            #print(info.id.item(),info.name.item(),info.acronym.item())
+            anatomy_dict['id'].append(info.id.item())
+            anatomy_dict['name'].append(info.name.item())
+            anatomy_dict['acronym'].append(info.acronym.item())
         except Exception as e:
             print(info)
             anatomy_dict['name'].append('outside brain')
