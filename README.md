@@ -6,15 +6,15 @@ This is done by fitting probe geometry loaded from [probe interface](https://git
 
 ![Figure of brainreg_probe method](./figures/brainreg_probe_method.png)
 
-> *Example output*: probe_df.htsv, a multi-index pandas dataframe:
+> **Example output**: probe_df.htsv, a multi-index [pandas dataframe](https://pandas.pydata.org/docs/reference/api/pandas.DataFrame.html):
 > 
 >|     | probe_coords       | allen_atlas_coords                    |structure|
 >|:---:|:------------------:|:-------------------------------------:|:-------------------------------:|
->|     |x <img width=20/> y | i <img width=20/> j <img width=20/> k | name <img width=20/> acronym id |
+>|     |x <img width=20/> y | i <img width=20/> j <img width=20/> k | name <img width=20/> acronym <img width=20/> id |
 >| ... | ... | ... | ... |
->| 452 | 0.0  3390.0 | 7323  2084 7699 | Field CA1 <img width=5/> CA1  382 |
->| 453 | 32.0  3390.0 | 7355  2097 7686 | Field CA1 <img width=5/> CA1  382 |
->| 454 | 0.0  3405.0 | 7323  2070 7702 | Field CA1 <img width=5/> CA1  382 |
+>| 452 | 0.0  3390.0 | 7323  2084 7699 | Field CA1 <img width=5/> CA1 <img width=20/> 382 |
+>| 453 | 32.0  3390.0 | 7355  2097 7686 | Field CA1 <img width=5/> CA1 <img width=20/> 382 |
+>| 454 | 0.0  3405.0 | 7323  2070 7702 | Field CA1 <img width=5/> CA1 <img width=20/> 382 |
 >| ... | ... | ... | ... |
 
 >
@@ -22,15 +22,16 @@ This is done by fitting probe geometry loaded from [probe interface](https://git
 # Tutorial
 The following tutorial tries to break it down to just *three easy steps*, organised as follows:
 
-1. Setup and installation
+1. setup and installation
 2. running brainreg (HPC cluster via SLURM)
 3. probeinterface tracing (HPC cluster via SLURM)
 
 We assume that the data is stored on a HPC server managed via SLURM. We recommend running the 'notebook.ipynb' for a smooth step-by-step walkthrough, examples, and details.
 
 The tutorial here is meant to supplement this notebook.
+
 ---
-## Step 1: Setup and installation
+## Step 1: setup and installation
 
 >[!TIP]
 > All the code will run seamlessly if your data is organised as below. Otherwise please change script paths.
@@ -49,7 +50,7 @@ The tutorial here is meant to supplement this notebook.
 >                └── <subject_ID>/ 
 >```
 
-- Navigate to your code folder (see tip above) and clone the current repository:
+- Navigate to your code folder and clone the current repository:
 ```
 git clone https://github.com/charlesdgburns/brainreg_probe.git
 ```
@@ -78,7 +79,7 @@ conda activate histology
 ---
 ## Step 2: run [brainreg](https://github.com/brainglobe/brainreg)
 
-Before running `brainreg` it is crucial to specify the orientation of the inputs. Please read the [brainglobe orientations docs](https://brainglobe.info/documentation/setting-up/image-definition.html). There's a helper function to check this:
+Before running `brainreg`, it is crucial to specify the orientation of the inputs. Please read the [brainglobe orientations docs](https://brainglobe.info/documentation/setting-up/image-definition.html). There's a helper function to check this:
 
 ```
 from brainreg_probe import run_brainreg as rub  
@@ -100,17 +101,17 @@ If not using a notebook, the output can be found at: `PREPROCESSED_BRAINREG_PATH
 >
 > The reason for this is that packages like `numpy` and `skimage` follow the same image data convention for data transfomrations (inhereting this convention from C++ image processing libraries).
 >
-> To avoid confusion with `X`, `Y`, `Z` ordering in the output, we refer to `downsample_coords` in voxel data dimension order `i`, `j`, `k`.
+> To avoid confusion with `X`, `Y`, `Z` ordering in the output, we refer to `downsample_coords` and `allen_atlas_coords` in voxel data dimension order `i`, `j`, `k`.
 
 >[!TIP] 
 >Data orientation and signal channel assignment can also be checked locally using [napari](https://napari.org/stable/). See the section **Manual data check and annotations** below.
 
 ---
 ## Step 3: register probes to the signal data
-This should ideally be as simple as:
+Before we can register the probe to the signal, we 
 ``` 
 from brainreg_probe import probeinterface_tracing as pit
-pit.get_probe_registration_df(subject_ID)
+pit.run_probeinterface_tracking()
 ```
 
 ---
@@ -129,3 +130,28 @@ You may run `brainreg` on a local machine, making sure to use the following comm
 ```brainreg <input_path> <output_path> --additional <dye_channel_path> -v <Z voxel size> <Y voxel size> <X voxel size> --orientation <orientation> --atlas allen_mouse_10um```
 
 We refer to
+
+# Citations
+
+Please make sure to properly reference the software used. The current repository doesn't have a paper to reference, but relies on key resources, so please consider referring to the code using sentences like the following:
+
+> Code used to track silicon probes is available at (https://github.com/charlesdgburns/brainreg_probe). 
+> Histology data was registered to the Allen Mouse Brain 10um Atlas [(Wang et al. 2020;](https://www.cell.com/cell/pdf/S0092-8674(20)30402-5.pdf)[ Claudi et al., 2020)](https://joss.theoj.org/papers/10.21105/joss.02668) using brainreg [(Tyson et al., 2022;](https://www.nature.com/articles/s41598-021-04676-9)[ Niedworok et al., 2016)](https://www.nature.com/articles/ncomms11879). 
+> Signal from Dil dye was then thresholded, clustered, and fit to the geometry of the probe loaded from probeinterface [(Garcia et al., 2022)](https://www.frontiersin.org/journals/neuroinformatics/articles/10.3389/fninf.2022.823056/full).
+> Registered data was plotted using brainrender [(Claudi et al., 2021)](https://elifesciences.org/articles/65751).
+
+
+The full citations mentioned above are:
+
+The 10um Allen Mouse Brain Atlas:
+>Wang, Q., Ding, S. L., Li, Y., Royall, J., Feng, D., Lesnar, P., ... & Ng, L. (2020). The Allen mouse brain common coordinate framework: a 3D reference atlas. Cell, 181(4), 936-953.
+The brainglobe API used to access the atlas:
+>Claudi, F., Petrucco, L., Tyson, A. L., Branco, T., Margrie, T. W. and Portugues, R. (2020). BrainGlobe Atlas API: a common interface for neuroanatomical atlases. Journal of Open Source Software, 5(54), 2668, <https://doi.org/10.21105/joss.02668>
+The brainreg paper:
+> Tyson, A. L., V&eacute;lez-Fort, M.,  Rousseau, C. V., Cossell, L., Tsitoura, C., Lenzi, S. C., Obenhaus, H. A., Claudi, F., Branco, T.,  Margrie, T. W. (2022). Accurate determination of marker location within whole-brain microscopy images. Scientific Reports, 12, 867 [doi.org/10.1038/s41598-021-04676-9](https://doi.org/10.1038/s41598-021-04676-9)
+The aMAP (original brainreg pipeline) paper:
+>Niedworok, C.J., Brown, A.P.Y., Jorge Cardoso, M., Osten, P., Ourselin, S., Modat, M. and Margrie, T.W., (2016). AMAP is a validated pipeline for registration and segmentation of high-resolution mouse brain data. Nature Communications. 7, 1–9. <https://doi.org/10.1038/ncomms11879>
+The probeinterface package for loading probe geometry:
+>Garcia S, Sprenger J, Holtzman T and Buccino AP (2022) ProbeInterface: A Unified Framework for Probe Handling in Extracellular Electrophysiology. Front. Neuroinform. 16:823056. doi: 10.3389/fninf.2022.823056
+The brainrender software for pretty plots:
+> Claudi, F., Tyson, A. L., Petrucco, L., Margrie, T.W., Portugues, R.,  Branco, T. (2021) "Visualizing anatomically registered data with Brainrender&quot; <i>eLife</i> 2021;10:e65751 [doi.org/10.7554/eLife.65751](https://doi.org/10.7554/eLife.65751)
