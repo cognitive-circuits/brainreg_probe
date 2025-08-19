@@ -73,13 +73,13 @@ def plot_sample_data_sections(signal_data, plane_centroid,fig_and_axes= None, fi
     return fig
 
 def plot_atlas_data_sections(probe_atlas_coords, probe_plane_centroid, voxel_size = 10,
-                             fig_and_axes:tuple = None):
+                             fig_and_axes:tuple = None, highlight_region = None):
     probe_plane_centroid
     if fig_and_axes is None:
         fig, axes = plt.subplots(1, 2, figsize=(10, 5))
     else:
         fig, axes = fig_and_axes
-    values = dict(HPF=0.1,CA1=1)
+    values = {highlight_region:1}
     scene1 = bgh.Heatmap(
         values,
         position=probe_plane_centroid,
