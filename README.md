@@ -3,6 +3,14 @@ This repository aims to automate the process of registering a silicon probe to b
 
 This is done by fitting probe geometry loaded from [probe interface](https://github.com/SpikeInterface/probeinterface) to signal data from Dil coated probes, following [procedures descrbed by BrainGlobe](https://brainglobe.info/tutorials/silicon-probe-tracking.html), which is then registered to the Allen brain atlas using [brainreg](https://github.com/brainglobe/brainreg).
 
+| idx | probe_coords<br>x | probe_coords<br>y | allen_atlas_coords<br>i | allen_atlas_coords<br>j | allen_atlas_coords<br>k | structure<br>name | structure<br>acronym | structure<br>id |
+|---:|------------------:|------------------:|------------------------:|------------------------:|------------------------:|:------------------|:--------------------:|----------------:|
+| 450 | 0.0 | 3375.0 | 7323.336426 | 2111.183350 | 7693.665039 | Field CA1 | CA1 | 382 |
+| 452 | 0.0 | 3390.0 | 7323.384766 | 2084.246094 | 7699.437012 | Field CA1 | CA1 | 382 |
+| 453 | 32.0 | 3390.0 | 7355.222656 | 2097.699219 | 7686.318848 | Field CA1 | CA1 | 382 |
+| 454 | 0.0 | 3405.0 | 7323.392578 | 2070.634033 | 7702.433105 | Field CA1 | CA1 | 382 |
+| 455 | 32.0 | 3405.0 | 7355.246582 | 2070.428223 | 7692.297363 | Field CA1 | CA1 | 382 |
+
 
 ![Figure of brainreg_probe method](./figures/brainreg_probe_method.png)
 
@@ -48,9 +56,11 @@ git clone https://github.com/charlesdgburns/brainreg_probe.git
 
 - Next, you want to set up a a [conda](https://www.anaconda.com/docs/getting-started/miniconda/install) environment, which will be called `histology` and contains all the required python packages:
 ```
-conda create -f environment.yml 
+conda create -f ./brainreg_probe/environment.yml 
 conda activate histology
 ``` 
+
+
 
 >[!CAUTION]
 > To run a notebook on a HPC cluster, please make sure to do so on a compute node (_not_ a gateway node).
