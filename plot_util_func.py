@@ -11,6 +11,11 @@ import numpy as np
 
 import brainglobe_heatmap as bgh
 
+## Global variables ## 
+
+#Set to `True` to plot straight lines in allen sample space
+SIMPLIFIED_PLOTTING = False
+
 ## functions ##
 
 def plot_3d(signal_df: pd.DataFrame,
@@ -31,6 +36,7 @@ def plot_3d(signal_df: pd.DataFrame,
                                    mode='markers', marker=dict(size=4, color='red')))
     fig.update_layout(scene=dict(xaxis_title='X', yaxis_title='Y', zaxis_title='Z'))
     fig.show()
+    return fig
 
 def adjust_contrast(image, percentile_low=1,percentile_high = 99):
     """Set the contrast, useful for viewng sample data slices at probe centroid"""

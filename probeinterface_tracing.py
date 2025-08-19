@@ -44,7 +44,7 @@ EXAMPLE_INPUT_DICT = { 'brainreg_signal_channel':2, #required for loading signal
                                       {'label':'ProbeB','manufacturer':'imec','name':'NP2020'}],
                         'probe_ordering_axis':'ap', #how are the probe inputs ordered anatomically?
                         'insertion_axis':['si','si'],
-                        'contact_face_axis':['rl','lr'],
+                        'contact_face_axis':['lr','rl'],
                         }
 
 ## Top level function ##
@@ -107,6 +107,7 @@ def get_probe_registration_df(brainreg_atlas_path: Path, #the path to your subje
                                            input_dict['insertion_axis'][each_probe],
                                            input_dict['contact_face_axis'][each_probe],
                                            longer_than_wider)
+        fitted_plane, _ = append_surface_coord(data['boundaries'],fitted_plane)
         best_params_dict = optimize_probe_plane(probe_signal_df,probe_df,fitted_plane)
         transformed_points = transform_2d_probe(probe_df, best_params_dict.values())
         downsampled_coords = project_2d_points_to_plane(transformed_points, fitted_plane)
@@ -151,6 +152,9 @@ def get_data(brainreg_atlas_path:Path, signal_channel = 2, control_channel = 3):
     # NOTE: loading data to transform 3D sample space coordinates to allan atlas coordinates
     for i in range(3):
         data.update({f'deformation_field_{i}': tifffile.imread(brainreg_atlas_path/f"deformation_field_{i}.tiff")})
+    
+    data.update({'boundaries':tifffile.imread(brainreg_atlas_path/'boundaries.tiff')})
+    
     return data
 
 # 1. Threshold signal via gamma+Otsu
@@ -159,9 +163,9 @@ def threshold_signal_gamma(data: np.ndarray,
                            gamma: float = 1.5) -> np.ndarray:
     '''We threshold the signal to separate dye signal from background autoflorescence.
     Returns: 
-    - thresholded_signal: np.ndarray() #(n_i, n_j, n_k) voxel data boolean mask where True indicates signal above threshold.
+    - thresholded_signal: np.ndarray() [i,j,k]] voxel data boolean mask where True indicates signal above threshold.
     Parameters:
-    - data: np.ndarray of shape (n_i, n_j, n_k) voxel data with dye signal.
+    - data: np.ndarray() [i,j,k]  voxel data with dye signal.
     - gamma: float, gamma exponent to apply to the data before thresholding.
     '''
     norm = data.astype(np.float32)
@@ -169,7 +173,11 @@ def threshold_signal_gamma(data: np.ndarray,
     corr = norm ** gamma
     mask = brain_mask if brain_mask is not None else np.ones_like(corr, bool)
     thresh = threshold_otsu(corr[mask])
-    return (corr > thresh) & mask
+    thresholded_signal =  (corr > thresh) & mask
+    n_signal_points = np.sum(thresholded_signal[:,:,:])
+    if n_signal_points>200000:
+        raise ValueError(f'{n_signal_points} remain after thresholding. This is unusually high. \n Please take a closer look a the signal data. Consider adjusting gamma.')
+    return thresholded_signal
 
 
 # 2. Build signal DataFrame
@@ -219,18 +227,22 @@ def cluster_signal(df, n_clusters:int, eps=50, min_samples=100,):
             diff = abs(n_found - n_clusters)
             if diff < best_diff:
                 best_diff = diff
+                best_n_found = n_found
                 best_eps = test_eps
                 if best_diff == 0:
                     break
         eps = best_eps
-    if best_diff!=0:
-        return ValueError(f'Failed to identify {n_clusters} clusters. \n Check signal data after thresholding.')
+
     # Cluster
     labels = DBSCAN(eps=eps, min_samples=min_samples).fit_predict(coords)
+    if best_diff!=0:
+        if best_n_found - n_clusters <=2:
+            print(f'Found {best_n_found-n_clusters} clusters too many. Assuming smallest cluster(s) to be noise and ignoring.')
+            labels[labels>1]=-1 #setting the smaller clusters to -1, since they are ordered by size (0 biggest, 1 smaller, et.c.)
+        else:
+            raise ValueError(f'Failed to identify {n_clusters} clusters, at best finding {best_n_found}. \n Check signal data after thresholding. You may want to adjust min_samples as well.')
+
     df_copy['cluster'] = labels
-    
-    
-        
     return df_copy
 
 def reorder_signal_clusters(clustered_signal_df:pd.DataFrame, probe_order_axis:str):
@@ -305,18 +317,36 @@ def fit_plane_to_signal(signal_df: pd.DataFrame,
     atlas_axis_to_align_to = possible_v_axes[1] if only_one_axis_misaligned else possible_v_axes[0] #these are ordered in the dictionary as axis aligned and inverse.
     v_axis = -v_axis if _cosine_similarity(v_axis, AXIS2ATLAS_VECTOR[atlas_axis_to_align_to]) < 0 else v_axis
     
-    #lastly, we want a surface estimate, which is essentially the centroid shifted to the brain surface
-    surface_coord = centroid.copy()
-    u_coords = np.dot(centered, u_axis)  # Projection onto u-axis, aligned with length of probe, with brain surface the largest coordinate.
-    top_1_percent_threshold = np.percentile(u_coords, 99)
-    top_1_percent_coords = u_coords[u_coords >= top_1_percent_threshold]
-    surface_coord += u_axis * np.median(top_1_percent_coords)
-    
     return {'centroid': centroid,
-            'surface_coord': surface_coord,
             'u_axis': u_axis,
             'v_axis': v_axis,
             'normal':normal}
+
+def append_surface_coord(boundaries_data, plane_dict):
+    surface_coords = []
+    for ap_slice in range(boundaries_data.shape[0]):
+        coords = np.argwhere(boundaries_data[ap_slice,:,:]==1)
+        if len(coords)==0:
+            continue
+        else:
+            for si_slice in np.unique(coords[:,0]):
+                rl_indices = np.argwhere(boundaries_data[ap_slice,si_slice]==1)
+                surface_coords.append([ap_slice,si_slice,np.min(rl_indices)]),
+                surface_coords.append([ap_slice,si_slice,np.max(rl_indices)])
+
+    surface_df = pd.DataFrame(np.array(surface_coords), columns=['i','j','k'])
+    
+    #lastly, we want a surface estimate, which is essentially the centroid shifted to the brain surface
+    surface_coord = plane_dict['centroid'].copy()
+    centered = surface_coords - plane_dict['centroid']
+    u_coords = np.dot(centered, plane_dict['u_axis'])  # Projection onto u-axis, aligned with length of probe, with brain surface the largest coordinate.
+    top_1_percent_threshold = np.percentile(u_coords, 99)
+    top_1_percent_coords = u_coords[u_coords >= top_1_percent_threshold]
+    surface_coord += plane_dict['u_axis'] * np.median(top_1_percent_coords)
+
+    plane_dict.update({'surface_coord': surface_coord})
+
+    return plane_dict, surface_df
 
 
 # 6. Transform 2d probe contacts before projection
