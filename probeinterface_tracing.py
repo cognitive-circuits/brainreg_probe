@@ -4,7 +4,7 @@ Note: the code here expects data output from brainreg registered to 10um Allen B
 This data is in 'sample space' which is downsampled and reoriented.
 We expect 3D image voxel data with shape (n_i, n_j, n_k).
 This data is (re)oriented as 'asr', meaning that the origin is in the anterior, superior, right corner of the 3D data.
-The first axis ('i' or 'Z') is anterior-posterior, the second ('j' or 'Y') is superior-inferior, and the third ('k' or 'X') is left-right.
+The first axis ('i' or 'Z') is anterior-posterior, the second ('j' or 'Y') is superior-inferior, and the third ('k' or 'X') is right-left.
 
 @charlesdgburns
 '''
@@ -45,6 +45,7 @@ EXAMPLE_INPUT_DICT = { 'brainreg_signal_channel':2, #required for loading signal
                         'probe_ordering_axis':'ap', #how are the probe inputs ordered anatomically?
                         'insertion_axis':['si','si'],
                         'contact_face_axis':['lr','rl'],
+                        'target_regions':['PL','CA1']
                         }
 
 ## Top level function ##
@@ -56,6 +57,7 @@ def run_probeinterface_tracking(subject_IDs:list = [], plotting=True):
         brainreg_atlas_path = PREPROCESSED_BRAINREG_PATH/each_subject/ATLAS_NAME
         input_dict = EXAMPLE_INPUT_DICT #can make subject-level changes here if required
         try:
+            print(f'Fitting probe to data from {each_subject}')
             probe_dfs, fit_params, signal_df, data = get_probe_registration_df(brainreg_atlas_path, input_dict)
         except Exception as e:
             print(f'Failed to get probe_df for {each_subject}: {e}')
@@ -71,9 +73,11 @@ def run_probeinterface_tracking(subject_IDs:list = [], plotting=True):
                 probe_plane_centroid = sample_coords_to_allen_space([fit_params[idx]['centroid']],data)[0]
                 _ = puf.plot_atlas_data_sections(probe_df.allen_atlas_coords.values,
                                                  probe_plane_centroid,
-                                                 fig_and_axes = (fig,[ax[1][0],ax[1][1]]))
+                                                 fig_and_axes = (fig,[ax[1][0],ax[1][1]]),
+                                                 highlight_region = input_dict['target_regions'][idx])
                 fig_path = PREPROCESSED_BRAINREG_PATH/each_subject/f"{fit_params[idx]['probe_name']}_sections.png"
                 fig.savefig(fig_path)
+                print(f'Saved section plots to:\n {fig_path}')
     return None 
 
 def get_probe_registration_df(brainreg_atlas_path: Path, #the path to your subject's brainreg output folder
@@ -119,18 +123,20 @@ def get_probe_registration_df(brainreg_atlas_path: Path, #the path to your subje
             probe_df[f'downsample_coords.{coord}'] = downsampled_coords.values[:,idx]
             probe_df[f'allen_atlas_coords.{coord}'] = atlas_coords[:,idx]
         # append the anatomy data
-        volume_ids, structure_names,acronyms = get_structure_labels(downsampled_coords.values, data)
-        for label, structure_data in {'name':structure_names,'acronym':acronyms,'id':volume_ids}.items():
+        anatomy_dict = get_structure_labels(downsampled_coords.values, data)
+        for label, structure_data in anatomy_dict.items():
             probe_df[f'structure.{label}'] = structure_data
         # add probe name to data
         probe_df['probe_name'] = probe_info[each_probe]['label']
         best_params_dict['probe_name'] = probe_info[each_probe]['label']
+        best_params_dict.update({k:list(v) for k,v in fitted_plane.items()})
+
         #save out the data
         probe_df_path = (brainreg_atlas_path.parent)/f"{probe_info[each_probe]['label']}_anatomy.htsv"
         probe_df.to_csv(probe_df_path,sep='\t', index=False)
         params_path = (brainreg_atlas_path.parent)/f"{probe_info[each_probe]['label']}_fit_params.json"
         with open(params_path, "w") as f:      #below we make np.arrays() lists for saving
-            json.dump(best_params_dict.update({k:list(v) for k,v in fitted_plane.items()}), f, indent = 4)
+            json.dump(best_params_dict, f, indent = 4)
         #append to lists
         #make probe_df multiindex before outputting
         probe_df.columns = pd.MultiIndex.from_tuples([col.split('.') if '.' in col else (col,'') for col in probe_df.columns])
@@ -176,7 +182,7 @@ def threshold_signal_gamma(data: np.ndarray,
     thresholded_signal =  (corr > thresh) & mask
     n_signal_points = np.sum(thresholded_signal[:,:,:])
     if n_signal_points>200000:
-        raise ValueError(f'{n_signal_points} remain after thresholding. This is unusually high. \n Please take a closer look a the signal data. Consider adjusting gamma.')
+        raise ValueError(f'{n_signal_points} voxels remain after thresholding. This is unusually high. \n Please take a closer look a the signal data. Consider adjusting gamma.')
     return thresholded_signal
 
 
@@ -257,7 +263,7 @@ def reorder_signal_clusters(clustered_signal_df:pd.DataFrame, probe_order_axis:s
     #then we project it onto the axis, and order them according to size along the axis.
     cluster_order = np.argsort(np.dot(median_cluster_coords,AXIS2ATLAS_VECTOR[probe_order_axis]))
     for i in range(len(cluster_order)):
-        clustered_signal_df[clustered_signal_df['cluster']==i]['cluster'] = cluster_order[i]
+        clustered_signal_df[clustered_signal_df['cluster']==i].loc[:,'cluster'] = cluster_order[i]
     return clustered_signal_df
 
 
@@ -488,16 +494,14 @@ def get_structure_labels(points_array:np.array, data:dict):
         volume_id = (data['atlas_registration_data'][int_coords[0],int_coords[1],int_coords[2]])
         try:
             info = ALLEN_ATLAS_INFO_DF.query(f'id=={volume_id}')
-            #print(info.id.item(),info.name.item(),info.acronym.item())
             anatomy_dict['id'].append(info.id.item())
             anatomy_dict['name'].append(info.name.item())
             anatomy_dict['acronym'].append(info.acronym.item())
         except Exception as e:
-            print(info)
             anatomy_dict['name'].append('outside brain')
             anatomy_dict['acronym'].append(np.nan)
             anatomy_dict['id'].append(np.nan)
-            print(f'Failed to get info. assuming outside brain\n {e}')
+            #print(f'Failed to get info. assuming outside brain\n {e}')
             continue
     return anatomy_dict
 

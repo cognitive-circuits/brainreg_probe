@@ -114,7 +114,8 @@ from brainreg_probe import probeinterface_tracing as pit
 pit.run_probeinterface_tracking()
 ```
 
->**Example input:** see below for an example input dictionary for an implant with two probes
+>**Example input:** see below for an example input dictionary for an implant with two probes:
+>
 > ![Example input dictionary](./figures/example_input.png)
 > Note that `contact_face_axis` is the vector pointing in the direction that the eletrode array contacts are facing. Here we assumed that this was the same direction as the tapered edge Neuropixel 2.0 probes (though this is not clearly [documented](https://www.neuropixels.org/_files/ugd/328966_2b39661f072d405b8d284c3c73588bc6.pdf)).
 
@@ -123,18 +124,16 @@ pit.run_probeinterface_tracking()
 
 # Manual data check and annotations
 You may need to manually check the histology and annotate where the probe was, for example in case of a poor Dil signal.
-This will have to be done locally.
+This will have to be done locally. [STILL FINALISING DOCUMENTATION HERE]
 
 ### Step 1: install napari
 install `napari` following their [instructions](https://napari.org/dev/tutorials/fundamentals/installation.html). 
 
-### Step 2: open data
-for 
+### Step 2: [TODO]
 
 You may run `brainreg` on a local machine, making sure to use the following command:
 ```brainreg <input_path> <output_path> --additional <dye_channel_path> -v <Z voxel size> <Y voxel size> <X voxel size> --orientation <orientation> --atlas allen_mouse_10um```
-
-We refer to
+with `input_path` pointing to a reference channel (usually 3 or green).
 
 # Citations
 
