@@ -4,7 +4,7 @@ This repository aims to automate the process of registering a silicon probe to b
 This is done by fitting probe geometry loaded from [probe interface](https://github.com/SpikeInterface/probeinterface) to signal data from Dil coated probes, following [procedures descrbed by BrainGlobe](https://brainglobe.info/tutorials/silicon-probe-tracking.html), which is then registered to the Allen brain atlas using [brainreg](https://github.com/brainglobe/brainreg).
 
 
-[insert nice set of figures and GIF here]
+![Figure of brainreg_probe method](./figures/brainreg_probe_method.png)
 
 > Example output: 
 > [insert multi-index table here somehow]
