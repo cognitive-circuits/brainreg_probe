@@ -8,14 +8,13 @@ This is done by fitting probe geometry loaded from [probe interface](https://git
 
 > *Example output*: probe_df.htsv, a multi-index pandas dataframe:
 > 
->|     | probe_coords<br>x <img width=20/> y | allen_atlas_coords<br>i <img width=20/> j <img width=20/> k | structure <br> name <img width=20/> acronym id|
->|:---:|:------------------:|:----------------------------:|:-----------------------------:|
+>|     | probe_coords       | allen_atlas_coords                    |structure|
+>|:---:|:------------------:|:-------------------------------------:|:-------------------------------:|
+>|     |x <img width=20/> y | i <img width=20/> j <img width=20/> k | name <img width=20/> acronym id |
 >| ... | ... | ... | ... |
->| 450 | 0.0  3375.0 | 7323  2111  7693 | Field CA1     CA1  382 |
->| 452 | 0.0  3390.0 | 7323  2084 7699 | Field CA1      CA1  382 |
->| 453 | 32.0  3390.0 | 7355  2097 7686 | Field CA1      CA1  382 |
->| 454 | 0.0  3405.0 | 7323  2070 7702 | Field CA1      CA1  382 |
->| 455 | 32.0  3405.0 | 7355  2070 7692 | Field CA1      CA1  382 |
+>| 452 | 0.0  3390.0 | 7323  2084 7699 | Field CA1 <img width=5/> CA1  382 |
+>| 453 | 32.0  3390.0 | 7355  2097 7686 | Field CA1 <img width=5/> CA1  382 |
+>| 454 | 0.0  3405.0 | 7323  2070 7702 | Field CA1 <img width=5/> CA1  382 |
 >| ... | ... | ... | ... |
 
 >
