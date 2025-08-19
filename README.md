@@ -6,7 +6,7 @@ This is done by fitting probe geometry loaded from [probe interface](https://git
 
 ![Figure of brainreg_probe method](./figures/brainreg_probe_method.png)
 
-> **Example output**: probe_df.htsv, a multi-index [pandas dataframe](https://pandas.pydata.org/docs/reference/api/pandas.DataFrame.html):
+> **Example output**: probe_anatomy.htsv, a multi-index [pandas dataframe](https://pandas.pydata.org/docs/reference/api/pandas.DataFrame.html):
 > 
 >|     | probe_coords       | allen_atlas_coords                    |structure|
 >|:---:|:------------------:|:-------------------------------------:|:-------------------------------:|
@@ -108,11 +108,16 @@ If not using a notebook, the output can be found at: `PREPROCESSED_BRAINREG_PATH
 
 ---
 ## Step 3: register probes to the signal data
-Before we can register the probe to the signal, we 
+Before we can register the probe to the signal, we need to provide some information about the implant and surgery to make sure the orientation is correct. This input is structured as a dictionary, which can be set as a global variable in `probeinterface_tracing.py` before running the following:
 ``` 
 from brainreg_probe import probeinterface_tracing as pit
 pit.run_probeinterface_tracking()
 ```
+
+>**Example input:** see below for an example input dictionary for an implant with two probes
+> ![Example input dictionary](./figures/example_input.png)
+> Note that `contact_face_axis` is the vector pointing in the direction that the eletrode array contacts are facing. Here we assumed that this was the same direction as the tapered edge Neuropixel 2.0 probes (though this is not clearly [documented](https://www.neuropixels.org/_files/ugd/328966_2b39661f072d405b8d284c3c73588bc6.pdf)).
+
 
 ---
 
@@ -133,25 +138,30 @@ We refer to
 
 # Citations
 
-Please make sure to properly reference the software used. The current repository doesn't have a paper to reference, but relies on key resources, so please consider referring to the code using sentences like the following:
+If you found this little repo helpful, please make sure to properly cite the software used! The current repository doesn't have a paper to reference, but relies on key resources, so consider citing code using a couple sentences like the following:
 
 > Code used to track silicon probes is available at (https://github.com/charlesdgburns/brainreg_probe). 
-> Histology data was registered to the Allen Mouse Brain 10um Atlas [(Wang et al. 2020;](https://www.cell.com/cell/pdf/S0092-8674(20)30402-5.pdf)[ Claudi et al., 2020)](https://joss.theoj.org/papers/10.21105/joss.02668) using brainreg [(Tyson et al., 2022;](https://www.nature.com/articles/s41598-021-04676-9)[ Niedworok et al., 2016)](https://www.nature.com/articles/ncomms11879). 
+> Histology data was registered to the 10um Allen Mouse Brain Atlas [(Wang et al. 2020;](https://www.cell.com/cell/pdf/S0092-8674(20)30402-5.pdf)[ Claudi et al., 2020)](https://joss.theoj.org/papers/10.21105/joss.02668) using brainreg [(Tyson et al., 2022;](https://www.nature.com/articles/s41598-021-04676-9)[ Niedworok et al., 2016)](https://www.nature.com/articles/ncomms11879). 
 > Signal from Dil dye was then thresholded, clustered, and fit to the geometry of the probe loaded from probeinterface [(Garcia et al., 2022)](https://www.frontiersin.org/journals/neuroinformatics/articles/10.3389/fninf.2022.823056/full).
-> Registered data was plotted using brainrender [(Claudi et al., 2021)](https://elifesciences.org/articles/65751).
+> Data registered to the atlas was then plotted using brainrender [(Claudi et al., 2021)](https://elifesciences.org/articles/65751).
 
 
 The full citations mentioned above are:
 
-The 10um Allen Mouse Brain Atlas:
+The Allen Mouse Brain Atlas (10um):
 >Wang, Q., Ding, S. L., Li, Y., Royall, J., Feng, D., Lesnar, P., ... & Ng, L. (2020). The Allen mouse brain common coordinate framework: a 3D reference atlas. Cell, 181(4), 936-953.
+
 The brainglobe API used to access the atlas:
 >Claudi, F., Petrucco, L., Tyson, A. L., Branco, T., Margrie, T. W. and Portugues, R. (2020). BrainGlobe Atlas API: a common interface for neuroanatomical atlases. Journal of Open Source Software, 5(54), 2668, <https://doi.org/10.21105/joss.02668>
+
 The brainreg paper:
 > Tyson, A. L., V&eacute;lez-Fort, M.,  Rousseau, C. V., Cossell, L., Tsitoura, C., Lenzi, S. C., Obenhaus, H. A., Claudi, F., Branco, T.,  Margrie, T. W. (2022). Accurate determination of marker location within whole-brain microscopy images. Scientific Reports, 12, 867 [doi.org/10.1038/s41598-021-04676-9](https://doi.org/10.1038/s41598-021-04676-9)
+
 The aMAP (original brainreg pipeline) paper:
 >Niedworok, C.J., Brown, A.P.Y., Jorge Cardoso, M., Osten, P., Ourselin, S., Modat, M. and Margrie, T.W., (2016). AMAP is a validated pipeline for registration and segmentation of high-resolution mouse brain data. Nature Communications. 7, 1–9. <https://doi.org/10.1038/ncomms11879>
+
 The probeinterface package for loading probe geometry:
 >Garcia S, Sprenger J, Holtzman T and Buccino AP (2022) ProbeInterface: A Unified Framework for Probe Handling in Extracellular Electrophysiology. Front. Neuroinform. 16:823056. doi: 10.3389/fninf.2022.823056
+
 The brainrender software for pretty plots:
 > Claudi, F., Tyson, A. L., Petrucco, L., Margrie, T.W., Portugues, R.,  Branco, T. (2021) "Visualizing anatomically registered data with Brainrender&quot; <i>eLife</i> 2021;10:e65751 [doi.org/10.7554/eLife.65751](https://doi.org/10.7554/eLife.65751)
