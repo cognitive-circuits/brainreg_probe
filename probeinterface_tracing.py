@@ -98,6 +98,7 @@ def get_probe_registration_df(brainreg_atlas_path: Path, #the path to your subje
     print(f'Clustering signal ({len(signal_df)} points) into {n_probes} clusters...')
     signal_df = cluster_signal(signal_df, n_clusters=n_probes)
     signal_df = reorder_signal_clusters(signal_df,input_dict['probe_ordering_axis'])
+    surface_df = get_surface_coord_df(data['boundaries'])
     # Get ready to rumble:
     probe_dfs = []
     fit_params = []
@@ -111,7 +112,7 @@ def get_probe_registration_df(brainreg_atlas_path: Path, #the path to your subje
                                            input_dict['insertion_axis'][each_probe],
                                            input_dict['contact_face_axis'][each_probe],
                                            longer_than_wider)
-        fitted_plane, _ = append_surface_coord(data['boundaries'],fitted_plane)
+        fitted_plane = append_surface_coord(surface_df,fitted_plane)
         best_params_dict = optimize_probe_plane(probe_signal_df,probe_df,fitted_plane)
         transformed_points = transform_2d_probe(probe_df, best_params_dict.values())
         downsampled_coords = project_2d_points_to_plane(transformed_points, fitted_plane)
@@ -119,9 +120,9 @@ def get_probe_registration_df(brainreg_atlas_path: Path, #the path to your subje
         #return the coordinates in downsampled space 
         #now append coords to the dataframe
         probe_df = probe_df[probe_df['probe_coords.y']<best_params_dict['probe_depth']]
-        for idx, coord in enumerate(['i','j','k']):
-            probe_df[f'downsample_coords.{coord}'] = downsampled_coords.values[:,idx]
-            probe_df[f'allen_atlas_coords.{coord}'] = atlas_coords[:,idx]
+        for coord_type, coords_data in {'downsample_coords':downsampled_coords.values,'allen_atlas_coords':atlas_coords}.items():
+            for idx, coord in enumerate(['i','j','k']):
+                probe_df[f'{coord_type}.{coord}'] = coords_data[:,idx]
         # append the anatomy data
         anatomy_dict = get_structure_labels(downsampled_coords.values, data)
         for label, structure_data in anatomy_dict.items():
@@ -140,7 +141,7 @@ def get_probe_registration_df(brainreg_atlas_path: Path, #the path to your subje
         #append to lists
         #make probe_df multiindex before outputting
         probe_df.columns = pd.MultiIndex.from_tuples([col.split('.') if '.' in col else (col,'') for col in probe_df.columns])
-        probe_dfs.append(probe_df)
+        probe_dfs.append(probe_df[['probe_coords','downsample_coords','allen_atlas_coords','structure']]) #simple reordering of columns here.. nothing to see
         fit_params.append(best_params_dict)
         
     return probe_dfs, fit_params, signal_df,data 
@@ -172,7 +173,7 @@ def threshold_signal_gamma(data: np.ndarray,
     - thresholded_signal: np.ndarray() [i,j,k]] voxel data boolean mask where True indicates signal above threshold.
     Parameters:
     - data: np.ndarray() [i,j,k]  voxel data with dye signal.
-    - gamma: float, gamma exponent to apply to the data before thresholding.
+    - gamma: float, gamma exponent to apply to the data before thresholding. Default is 1.5.
     '''
     norm = data.astype(np.float32)
     norm -= norm.min(); norm /= norm.max()
@@ -263,7 +264,7 @@ def reorder_signal_clusters(clustered_signal_df:pd.DataFrame, probe_order_axis:s
     #then we project it onto the axis, and order them according to size along the axis.
     cluster_order = np.argsort(np.dot(median_cluster_coords,AXIS2ATLAS_VECTOR[probe_order_axis]))
     for i in range(len(cluster_order)):
-        clustered_signal_df[clustered_signal_df['cluster']==i].loc[:,'cluster'] = cluster_order[i]
+        clustered_signal_df.loc[clustered_signal_df['cluster']==i,'cluster'] = cluster_order[i]
     return clustered_signal_df
 
 
@@ -273,8 +274,8 @@ def fit_plane_to_signal(signal_df: pd.DataFrame,
                         contact_face_axis:str= 'lr',
                         longer_than_wider: bool = True) -> dict:
     """
-    Fit a 2D plane to 3D points using PCA, outputting dict with centroid, normal, u_axis, v_axis, where u,v are aligned with probe depth,width respectively.
-    
+    Fit a 2D plane to 3D points using PCA, outputting dict with centroid, normal, v_axis, u_axis, where u,v are aligned with probe width, and -depth respectively.
+
     Parameters:
     ------
     - signal_df: DataFrame with 'i', 'j', 'k' columns.
@@ -285,16 +286,18 @@ def fit_plane_to_signal(signal_df: pd.DataFrame,
     Returns: dict() with
     ------
     - centroid: np.array() [i,j,k] coordinates in sample space corresponding to the centre of the signal 
-    - surface_coord: np.array() [i,j,k] coordinates corresponding to most superior signal along u_axis.
-    - u_axis: np.array() [i,j,k] coordinates corresponding to axis pointing from bottom of probe to the top.
-    - v_axis: np.array() [i,j,k] coordinates corresponding to axis pointing from left to right of probe.
+    - surface_coord: np.array() [i,j,k] coordinates corresponding to most superior signal along v_axis.
+    - v_axis: np.array() [i,j,k] coordinates corresponding to axis pointing from bottom of probe to the top.
+    - u_axis: np.array() [i,j,k] coordinates corresponding to axis pointing from left to right of probe.
     - normal: np.array() [i,l,k] coordinates corresponding to axis pointing out from the probe contacts.
+    
     Note:
     -----
     axis strings should be one of 'rl' (right-left), 'ap' (anterior-posterior), 'si' (superior-inferior)
     or their inverses 'lr','pa', and'is'. 
     This is for correspondence with probeinterface axes, 
     where 2D origin is the lower left of the probe i.e. the deepest and left-most contact (when looking at contact faces).
+    This maps x,y axes of probe coordinates to u,v axes of the plane.
     """
     points = signal_df[['i','j','k']].values
     centroid = np.median(points,axis=0)
@@ -303,32 +306,35 @@ def fit_plane_to_signal(signal_df: pd.DataFrame,
     pca.fit(centered)
     #very cool trick here ngl.
     normal = pca.components_[-1] #least variance direction will be orthogonal to plane.
-    u_axis = pca.components_[0] if longer_than_wider else pca.components_[1]
-    v_axis = pca.components_[1] if longer_than_wider else pca.components_[0]
+    v_axis = pca.components_[0] if longer_than_wider else pca.components_[1]
+    u_axis = pca.components_[1] if longer_than_wider else pca.components_[0]
     
     # standardise orientation of axes of plane 
-    def _cosine_similarity(a, b):
+    def _cosine_similarity(a, b): #numpy doesn't have a simple cosine_similarity function for some reason.
         return np.dot(a, b) / (np.linalg.norm(a) * np.linalg.norm(b))
-    # flip u_axis if in similar direction to probe depth axis (we want it to point from bottom of probe to top, so actually opposite the insertion axis)
-    u_axis = -u_axis if 0 < _cosine_similarity(u_axis, AXIS2ATLAS_VECTOR[insertion_axis]) else u_axis
+
+    # flip v_axis if in similar direction to probe depth axis (we want it to point from bottom of probe to top, so actually opposite the insertion axis)
+    v_axis = -v_axis if 0 < _cosine_similarity(v_axis, AXIS2ATLAS_VECTOR[insertion_axis]) else v_axis
     # flip the normal if it is not in the same direction as the contact facing axis.
     normal = -normal if 0 > _cosine_similarity(normal, AXIS2ATLAS_VECTOR[contact_face_axis]) else normal
-    # flip v_axis requires a bit more logic.
+    # flip u_axis requires a bit more logic.
     # we know the axis along width is orthogonal to the other two axes, so we can determine the dimension:
     possible_v_axes = [axis_label for axis_label in AXIS2ATLAS_VECTOR.keys() if axis_label[0] not in (insertion_axis+contact_face_axis) ] #we check the first character of each string since all characters are unique.
     # we pick the atlas axis to align to by looking at the signs of the other two axes. 
-    # If only one of the axes does not align with the atlas axis, we need to align the v_axis with the inverse of the atlas axis.
+    # If only one of the axes does not align with the atlas axis, we need to align the u_axis with the inverse of the atlas axis.
     # we also know that if only one of the axes does not align with the atlas axis, the sum of the vector values will sum to 0.
     only_one_axis_misaligned = sum(AXIS2ATLAS_VECTOR[insertion_axis]+AXIS2ATLAS_VECTOR[contact_face_axis])==0
     atlas_axis_to_align_to = possible_v_axes[1] if only_one_axis_misaligned else possible_v_axes[0] #these are ordered in the dictionary as axis aligned and inverse.
-    v_axis = -v_axis if _cosine_similarity(v_axis, AXIS2ATLAS_VECTOR[atlas_axis_to_align_to]) < 0 else v_axis
+    u_axis = -u_axis if _cosine_similarity(u_axis, AXIS2ATLAS_VECTOR[atlas_axis_to_align_to]) < 0 else u_axis
     
     return {'centroid': centroid,
-            'u_axis': u_axis,
             'v_axis': v_axis,
+            'u_axis': u_axis,
             'normal':normal}
 
-def append_surface_coord(boundaries_data, plane_dict):
+
+def get_surface_coord_df(boundaries_data:dict)-> pd.DataFrame:
+    '''Returns a pandas dataframe with brain surface coordinates ['i','j','k']'''
     surface_coords = []
     for ap_slice in range(boundaries_data.shape[0]):
         coords = np.argwhere(boundaries_data[ap_slice,:,:]==1)
@@ -341,18 +347,23 @@ def append_surface_coord(boundaries_data, plane_dict):
                 surface_coords.append([ap_slice,si_slice,np.max(rl_indices)])
 
     surface_df = pd.DataFrame(np.array(surface_coords), columns=['i','j','k'])
-    
-    #lastly, we want a surface estimate, which is essentially the centroid shifted to the brain surface
-    surface_coord = plane_dict['centroid'].copy()
-    centered = surface_coords - plane_dict['centroid']
-    u_coords = np.dot(centered, plane_dict['u_axis'])  # Projection onto u-axis, aligned with length of probe, with brain surface the largest coordinate.
-    top_1_percent_threshold = np.percentile(u_coords, 99)
-    top_1_percent_coords = u_coords[u_coords >= top_1_percent_threshold]
-    surface_coord += plane_dict['u_axis'] * np.median(top_1_percent_coords)
+    return surface_df
 
-    plane_dict.update({'surface_coord': surface_coord})
+def append_surface_coord(surface_df:pd.DataFrame, plane_dict:dict)->dict:
+    """Returns plane_dict with 'surface_coord' appended.
+    This is the coordinate on the brain surface aligned with v_axis.
+    """
+    #lastly, we want a surface estimate for a probe, which is essentially the centroid shifted to the brain surface
+    surface_coords = surface_df.values.astype(np.float64)
+    vectors = surface_coords - plane_dict['centroid']
+    # now we do cosine similarity in batch here
+    numerator = vectors @ plane_dict['v_axis'] #(v dot u)
+    denominator = np.linalg.norm(vectors,axis=1)*np.linalg.norm(plane_dict['v_axis']) #||v||*||u||
+    cos_sim = np.divide(numerator,denominator)
+    probe_surface_coord = surface_coords[int(np.argmax(cos_sim))]
+    plane_dict.update({'surface_coord': probe_surface_coord})
 
-    return plane_dict, surface_df
+    return plane_dict
 
 
 # 6. Transform 2d probe contacts before projection
@@ -400,7 +411,7 @@ def project_2d_points_to_plane(points_df: pd.DataFrame,
     - points_3d: np.ndarray of shape (n_points, 3) with projected 3D coordinates.
     Parameters: 
     - points_df: DataFrame with 'probe_coords.x', 'probe_coords.y' columns.
-    - plane_info: dict with keys 'surface_coord', 'u_axis', 'v_axis' for a 2D plane in 3D space.
+    - plane_info: dict with keys 'surface_coord', 'v_axis', 'u_axis' for a 2D plane in 3D space.
     NOTE: the origin of the projection is 'surface_coord'.
           i.e., the points_df should be transformed accordingly.
     """
@@ -409,8 +420,8 @@ def project_2d_points_to_plane(points_df: pd.DataFrame,
     v_coords = points_df['probe_coords.x'].values #v axis is aligned with width of the probe
     # Project onto 3D plane using the plane's coordinate system
     points_3d = (plane_info['surface_coord'][np.newaxis, :] + 
-                 u_coords[:, np.newaxis] * plane_info['u_axis'][np.newaxis, :] + 
-                 v_coords[:, np.newaxis] * plane_info['v_axis'][np.newaxis, :])
+                 u_coords[:, np.newaxis] * plane_info['v_axis'][np.newaxis, :] + 
+                 v_coords[:, np.newaxis] * plane_info['u_axis'][np.newaxis, :])
     return pd.DataFrame(points_3d, columns=['i', 'j', 'k'])
 
 # 8. define cost function for fitting probe geometry to signal
@@ -441,7 +452,7 @@ def estimate_initial_params(signal_df: pd.DataFrame, probe_df:pd.DataFrame, plan
     if probe_depth is None:
         #Estimate depth of the probe (in sample space):
         centered_points = signal_df[['i', 'j', 'k']].values - plane['centroid']
-        u_coords = np.dot(centered_points, plane['u_axis'])  # Projection onto u-axis, aligned with probe depth
+        u_coords = np.dot(centered_points, plane['v_axis'])  # Projection onto u-axis, aligned with probe depth
         probe_depth = np.percentile(u_coords,99.9) - np.percentile(u_coords,0.1)  # Range of u-coordinates gives depth of probe
         
     #estimate the shrinkage of the brain by fitting iteratively and choosing best parameters
