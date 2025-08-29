@@ -139,7 +139,7 @@ with `input_path` pointing to a reference channel (usually 3 or green).
 
 If you found this little repo helpful, please make sure to properly cite the software used! The current repository doesn't have a paper to reference, but relies on key resources, so consider citing code using a couple sentences like the following:
 
-> Code used to track silicon probes is available at (https://github.com/charlesdgburns/brainreg_probe). 
+> Code used to track silicon probes is available at (https://github.com/cognitive-circuits/brainreg_probe). 
 > Histology data was registered to the 10um Allen Mouse Brain Atlas [(Wang et al. 2020;](https://www.cell.com/cell/pdf/S0092-8674(20)30402-5.pdf)[ Claudi et al., 2020)](https://joss.theoj.org/papers/10.21105/joss.02668) using brainreg [(Tyson et al., 2022;](https://www.nature.com/articles/s41598-021-04676-9)[ Niedworok et al., 2016)](https://www.nature.com/articles/ncomms11879). 
 > Signal from Dil dye was then thresholded, clustered, and fit to the geometry of the probe loaded from probeinterface [(Garcia et al., 2022)](https://www.frontiersin.org/journals/neuroinformatics/articles/10.3389/fninf.2022.823056/full).
 > Data registered to the atlas was then plotted using brainrender [(Claudi et al., 2021)](https://elifesciences.org/articles/65751).
