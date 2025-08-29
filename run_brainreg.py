@@ -17,8 +17,7 @@ RAW_HISTOLOGY_PATH = Path("../data/raw_data/histology")               # Contains
 PREPROCESSED_BRAINREG_PATH = Path("../data/preprocessed_data/brainreg")  # Will contain brainreg/<subject_ID>/<atlas_name>/outputs
 JOBS_PATH = Path("./Jobs/brainreg")               # Stores SLURM scripts and logs
 for jobs_folder in ["slurm", "out", "err"]:
-        if not (JOBS_PATH/jobs_folder).exists():
-            os.mkdir(JOBS_PATH/jobs_folder)
+    (JOBS_PATH/jobs_folder).mkdir(parents=True, exist_ok=True)
             
 ATLAS_NAME = 'allen_mouse_10um'
 # specify subjects here as a list, otherwise assume that they are subdirs to raw_histology_path
@@ -63,6 +62,9 @@ def check_brain_orientations():
             ax[i].scatter(0,0, color='red', s=100, zorder=3)
         fig.tight_layout()
         save_path = (PREPROCESSED_BRAINREG_PATH/subject_ID/'orientation_check.png')
+        if not save_path.parent.exists():
+            print(f"creating {save_path.parent} to save img.")
+            save_path.parent.mkdir(exist_ok=True, parents=True)
         fig.savefig(save_path)
         print(f'Saved plot to: {save_path}')
         plt.show()

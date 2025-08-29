@@ -528,6 +528,3 @@ def sample_coords_to_allen_space(points:np.array,
                         def_fields[2][int(point[0]),int(point[1]),int(point[2])]])
     atlas_um = np.array(atlas_mm)*1000
     return atlas_um
- 
-# 13. save
-#
