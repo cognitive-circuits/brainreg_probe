@@ -19,6 +19,7 @@ from tqdm import tqdm
 from pathlib import Path
 # plotting
 from brainreg_probe import plot_util_func as puf
+from brainreg_probe import manually_annotated_points as maps
 # probe info and fitting functions
 import probeinterface as pi
 from skimage.filters import threshold_otsu
@@ -153,7 +154,16 @@ def get_data(brainreg_atlas_path:Path, signal_channel = 2, control_channel = 3):
     control_channel = str(control_channel); signal_channel= str(signal_channel)
     data = {} #we want to output a structured data dictionary
     # NOTE: Signal_data is what we fit the probe geometry to
-    data.update({'signal_data' :tifffile.imread(brainreg_atlas_path/f"downsampled_{signal_channel}.tiff")})
+    try:
+        data.update({'signal_data' :tifffile.imread(brainreg_atlas_path/f"downsampled_{signal_channel}.tiff")})
+    except Exception as e:
+        print(f'No signal data found: \n {e}')
+        
+    try: #look for manually annotated points:
+        subject_ID = brainreg_atlas_path.parent.stem
+        data.update({'manual_points': maps.get_manually_annotated_points_df(subject_ID)})
+    except Exception as e:
+        print(f'No manual points found: \n {e}')
     #then we need the atlas volume id's in sample space coordinates (we map these using ALLEN_ATLAS_INFO_DF)
     data.update({'atlas_registration_data':tifffile.imread(brainreg_atlas_path/"registered_atlas.tiff")})
     # NOTE: loading data to transform 3D sample space coordinates to allan atlas coordinates
@@ -175,6 +185,7 @@ def threshold_signal_gamma(data: np.ndarray,
     - data: np.ndarray() [i,j,k]  voxel data with dye signal.
     - gamma: float, gamma exponent to apply to the data before thresholding. Default is 1.5.
     '''
+    assert data.__contains__['signal_data'], 'data dict must contain "signal_data" with 3D voxel data'
     norm = data.astype(np.float32)
     norm -= norm.min(); norm /= norm.max()
     corr = norm ** gamma
@@ -194,6 +205,7 @@ def make_signal_df(data: np.ndarray, mask: np.ndarray) -> pd.DataFrame:
     df = pd.DataFrame(coords, columns=['i','j','k'])
     df['value'] = values
     df['norm_value'] = (values-values.min())/values.max() #normalise to [0,1]
+    
     return df
 
 
@@ -205,6 +217,32 @@ def get_probe_contacts_df(manufacturer: str = 'imec', probe_name: str = 'NP2014'
 
 
 # 4. Cluster signal points
+def separate_probes_from_noise(signal_df: pd.DataFrame, 
+                               n_probes:int, 
+                               probe_ordering_axis:str,
+                               DBSCAN_eps=50,
+                               DBSCAN_min_samples=100):
+    '''Separate signal into data. This applies cluster_signal() and reorder_signal_clusters() functions to signal data.'''
+    points = signal_df[['i','j','k']].values
+    if n_probes==2: # When there are just two probes, 
+        clustered_probes = []
+        for i in range(n_probes):
+        # we have an advantage that we can separate two probes along probe ordering axis
+        # then cluster each subset of points to denoise, and at the end append and reorder.
+            centroid = np.median(points,axis=0)
+            axis_idx = [x!=0 for x in AXIS2ATLAS_VECTOR['lr']] # True for the axis that is ordered
+            probe_mask = points[:,axis_idx]<centroid[axis_idx] # <- example for separating along the i axisx
+            clustered_probe_df = cluster_signal(signal_df.iloc[probe_mask[:,0]], n_clusters=1)
+            clustered_probe_df.loc[clustered_probe_df['cluster']==0,'cluster'] = i
+            clustered_probes.append(clustered_probe_df)
+        signal_df = pd.concat(clustered_probes, ignore_index=True)
+        signal_df = reorder_signal_clusters(signal_df,probe_ordering_axis)
+    else:
+        #if just one probe, or more than two probes, we have to do it all in one go.
+        signal_df = cluster_signal(signal_df, n_clusters=n_probes, eps=DBSCAN_eps, min_samples=DBSCAN_min_samples)
+        signal_df = reorder_signal_clusters(signal_df,probe_ordering_axis)
+    return signal_df
+    
 def cluster_signal(df, n_clusters:int, eps=50, min_samples=100,):
     """
     Separate signal into data from probes and noise from autoflorescence.

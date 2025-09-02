@@ -87,22 +87,42 @@ def get_brainreg_paths_df(raw_data_path = RAW_HISTOLOGY_PATH):
         paths_dict['subject_ID'].append(each_subject)
         paths_dict['input_path'].append(subject_histology_path/str(REGISTRATION_CHANNEL))
         paths_dict['output_path'].append(PREPROCESSED_BRAINREG_PATH/each_subject/ATLAS_NAME)
-        paths_dict['signal_path'].append(subject_histology_path/str(SIGNAL_CHANNEL))
+        if Path(subject_histology_path/str(SIGNAL_CHANNEL)).exists():
+            paths_dict['signal_path'].append(subject_histology_path/str(SIGNAL_CHANNEL))
+        else:
+            print(f'OBS: No signal channel data found for {each_subject}, proceeding without it.')
+            paths_dict['signal_path'].append('none')
+
         paths_dict['recipe_path'].append(list(paths_dict['input_path'][-1].parent.parent.glob("recipe*"))[0])
         paths_dict['brainreg_completed'].append(paths_dict['output_path'][-1].exists())
         paths_dict['orientation'].append(SUBJECT_ID2ORIENTATION[each_subject])
 
     return pd.DataFrame(paths_dict)
     
+def _q(x) -> str:
+    import shlex
+    return shlex.quote(str(x))
 
 def get_brainreg_SLURM_script(br_info, RAM="64GB", time_limit="23:59:00"):
     """
-    Writes a SLURM script to run sleap tracking on the video from a session specified in video_info.
-    Input: video_info: pd.Series, with columns: subject_ID, session_type, datetime, video_path (row from the output of get_video_paths_df())
-    Output: script_path: str, path to the SLURM script (saved in mazeSLEAP/jobs/slurm/)
+    Writes a SLURM script to run brainreg.
     """
     session_ID = f"{br_info.subject_ID}"
     voxel_sizes = get_voxel_sizes(br_info.recipe_path)
+
+    # Build optional --additional segment
+    sig = br_info.signal_path
+    include_additional = bool(sig) and str(sig).strip().lower() not in {"none", "null"}
+    additional_arg = f"--additional {_q(sig)}" if include_additional else ""
+
+    cmd = (
+        f"brainreg {_q(br_info.input_path)} {_q(br_info.output_path)} "
+        f"{additional_arg} "
+        f"-v {voxel_sizes['Z']} {voxel_sizes['Y']} {voxel_sizes['X']} "
+        f"--orientation {_q(br_info.orientation)} "
+        f"--atlas {_q(ATLAS_NAME)} --debug"
+    ).strip()
+
     script = f"""#!/bin/bash
 #SBATCH --job-name=brainreg_{session_ID}
 #SBATCH --output='{JOBS_PATH}/out/brainreg_{session_ID}.out'
@@ -116,18 +136,16 @@ def get_brainreg_SLURM_script(br_info, RAM="64GB", time_limit="23:59:00"):
 
 echo $SLURMD_NODENAME
 source /etc/profile.d/modules.sh
-
 echo "Loading Brainglobe module"
 module load brainglobe/2024-03-01
 nvidia-smi
 
 echo "Running brainreg"
-
-brainreg {br_info.input_path} {br_info.output_path} --additional {br_info.signal_path} -v {voxel_sizes['Z']} {voxel_sizes['Y']} {voxel_sizes['X']} --orientation {br_info.orientation} --atlas {ATLAS_NAME} --debug"""
+{cmd}
+"""
     script_path = JOBS_PATH/'slurm'/f'brainreg_{session_ID}.sh'
     with open(script_path, "w") as f:
         f.write(script)
-
     return script_path
 
 def get_voxel_sizes(recipe_path):

@@ -6,13 +6,19 @@ Any questions or help needed? At me: @charlesdgburns'''
 
 import numpy as np
 import pandas as pd
-from typing import Dict, Iterable, Literal, Optional
 
 from pathlib import Path
+import tifffile
 import xml.etree.ElementTree as ET
 import pandas as pd
 import numpy as np
 from typing import Union
+from nibabel.orientations import axcodes2ornt, ornt_transform
+
+from brainreg_probe import run_brainreg as rub
+
+## Global variables ##
+
 
 # example usage
 
@@ -26,8 +32,33 @@ from typing import Union
 
 ## usage
 
+def get_manually_annotated_points_df(subject_ID):
+    '''Input: path_to_yaml_recipe, path_to_xml_manual_points
+    Returns: pandas dataframe with 'i','j','k' coordinates of manually annotated points in 10um voxel space'''
+    path_df = rub.get_brainreg_paths_df()
+    subject_paths = path_df[path_df.subject_ID == subject_ID].iloc[0]
+    recipe_path = Path(subject_paths.recipe_path)
+    manual_path = Path(subject_paths.output_path.parent)/f'{subject_paths.subject_ID}_manual.xml'
+    try:
+        points_df = load_cellcounter_markers(manual_path)
+    except Exception as e:
+            FileNotFoundError(f'Could not find manual points xml: \n {e}')
+    voxel_sizes = get_voxel_sizes(recipe_path)
+    img_shape = get_img_shape(subject_paths.input_path)
+
+    downsampled_points = points_to_atlas_grid(
+        points_df,
+        img_shape=img_shape,
+        sample_vox_um=(voxel_sizes['Z'], voxel_sizes['Y'], voxel_sizes['X']),
+        atlas_vox_um=(10, 10, 10),
+        icol="z", jcol="y", kcol="x",
+        from_axcodes=("P","S","L"),
+        to_axcodes=("A","S","R"))
+    downsampled_points['norm_value'] = 1 #add normalised value for later clustering
+    return downsampled_points
 #
 #
+
 
 def load_cellcounter_markers(xml_source: Union[str, Path]) -> pd.DataFrame:
     """
@@ -41,7 +72,7 @@ def load_cellcounter_markers(xml_source: Union[str, Path]) -> pd.DataFrame:
     Returns
     -------
     pd.DataFrame
-        Columns: ['type','x','y','z'] (floats; 'type' int when present).
+        Columns: ['x','y','z'] (floats; 'type' int when present).
     """
     # Determine if it's a path or raw XML text
     if isinstance(xml_source, (str, Path)) and Path(str(xml_source)).exists():
@@ -57,9 +88,7 @@ def load_cellcounter_markers(xml_source: Union[str, Path]) -> pd.DataFrame:
 
     # Preferred structure: multiple <Marker_Type> blocks
     for mt in marker_data.findall("Marker_Type"):
-        tnode = mt.find("Type")
-        type_id = int(tnode.text.strip()) if (tnode is not None and tnode.text) else None
-
+##
         for m in mt.findall("Marker"):
             def num(tag):
                 node = m.find(tag)
@@ -70,8 +99,7 @@ def load_cellcounter_markers(xml_source: Union[str, Path]) -> pd.DataFrame:
                 except ValueError:
                     return np.nan
 
-            rows.append({
-                "type": type_id,
+            rows.append({##
                 "x": num("MarkerX"),
                 "y": num("MarkerY"),
                 "z": num("MarkerZ"),  # may be missing -> NaN
@@ -88,15 +116,11 @@ def load_cellcounter_markers(xml_source: Union[str, Path]) -> pd.DataFrame:
                     return float(node.text.strip())
                 except ValueError:
                     return np.nan
-            rows.append({"type": np.nan, "x": num("MarkerX"), "y": num("MarkerY"), "z": num("MarkerZ")})
+            rows.append({ "x": num("MarkerX"), "y": num("MarkerY"), "z": num("MarkerZ")})
 
-    df = pd.DataFrame(rows, columns=["type", "x", "y", "z"])
-    if df["type"].notna().all():
-        df["type"] = df["type"].astype(int)
-    df[["x", "y"]] = df[["x", "y"]].astype(float)
-    # z stays float to allow NaN
+    df = pd.DataFrame(rows, columns=["x", "y", "z"])
+    df[["x", "y","z"]] = df[["x", "y","z"]].astype(float)
     return df
-
 
 def get_voxel_sizes(recipe_path):
     import yaml
@@ -108,107 +132,72 @@ def get_voxel_sizes(recipe_path):
         except yaml.YAMLError as exc:
             print(exc)
 
+def get_img_shape(subject_brainreg_input_path: Path) -> tuple:
+    # we need to get the img_shape
+    shape_i = 0
+    for img_path in subject_brainreg_input_path.iterdir():
+        #i'th coordinate is as long as the number of files
+        shape_i += 1
+        if shape_i == 1:
+            # j and k are equal to the shape of the first file
+            img = tifffile.imread(img_path)
+            shape_j, shape_k = img.shape
 
+    img_shape = (shape_i, shape_j, shape_k)
+    return img_shape
 
+def points_to_atlas_grid(
+    df, 
+    img_shape:tuple,                            # <- shape of your *original* image in I,J,K order
+    sample_vox_um=(20.0, 4.386, 4.386),          # <- your raw voxel sizes, ordered in (I,J,K) = (Z,Y,X)
+    atlas_vox_um=(10.0, 10.0, 10.0),              # <- e.g. Allen 10 µm
+    icol="z", jcol="y", kcol="x",                # <- names of columns in df corresponding to i,j,k.
+    from_axcodes=("P","S","L"),                  # <- raw image axcodes, ordered as (I,J,K) = (Z,Y,X)
+    to_axcodes=("A","S","R"),                    # <- atlas axcodes (set to your atlas, standard Allen is 'asr'')
+    
+):
+    pts = df[[icol, jcol, kcol]].to_numpy()
 
-BinningMethod = Literal["floor", "round", "ceil"]
+    # 1) reorient voxel indices
+    pts_ro, ornt = _reorient_points_vox(pts, img_shape, from_axcodes, to_axcodes)
 
-def _bin_method(method: BinningMethod):
-    if method == "floor":
-        return np.floor
-    if method == "round":
-        return np.rint
-    if method == "ceil":
-        return np.ceil
-    raise ValueError("method must be 'floor', 'round', or 'ceil'")
+    # 2) convert to mm, then to atlas-voxel indices
+    sample_vs_mm = np.asarray(sample_vox_um, dtype=float) / 1000.0
+    atlas_vs_mm  = np.asarray(atlas_vox_um,  dtype=float) / 1000.0
+    vs_ro_mm     = _reorient_voxsizes_mm(sample_vs_mm, ornt)
 
-def downsample_points_to_um_voxels(
-    df: pd.DataFrame,
-    voxel_sizes_um: Dict[str, float],
-    target_um: Iterable[float] = (10.0, 10.0, 10.0),
-    *,
-    method: BinningMethod = "floor",
-    apply_affine_um: Optional[np.ndarray] = None,
-    keep_original_cols: bool = True,
-    count_col: str = "n_points"
-) -> pd.DataFrame:
+    atlas_mm  = pts_ro * vs_ro_mm                 # world coords in mm
+    atlas_vox = atlas_mm / atlas_vs_mm            # float voxel coords on the atlas grid
+
+    out = df.copy()
+    out[["i","j","k"]] = atlas_vox
+    return out
+
+def _reorient_points_vox(coords, img_shape, from_axcodes, to_axcodes):
     """
-    Downsample point coordinates to a regular voxel grid in physical (µm) space.
-
-    Parameters
-    ----------
-    df : DataFrame
-        Must contain columns 'x','y','z' measured in *index units* (pixels for X,Y; planes for Z).
-    voxel_sizes_um : dict
-        Microns per index unit, e.g. {'X': 4.386, 'Y': 4.386, 'Z': 20.0}.
-    target_um : (tx, ty, tz)
-        Target voxel size in µm (default 10 µm isotropic).
-    method : {'floor','round','ceil'}
-        How to assign a point to a voxel bin.
-    apply_affine_um : np.ndarray, optional
-        3x3 or 4x4 affine to apply in *µm space* BEFORE binning.
-        - If 3x3, it’s interpreted as a 2D xy affine in homogeneous coords:
-          [[a,b,tx],[c,d,ty],[0,0,1]] and z is unchanged.
-        - If 4x4, it’s full 3D in homogeneous coords.
-    keep_original_cols : bool
-        Keep the original columns or not.
-    count_col : str
-        Name of the aggregated count column.
-
-    Returns
-    -------
-    DataFrame with integer voxel indices: 'vx10','vy10','vz10' and counts per voxel.
+    coords: (N,3) voxel indices in the *original* image orientation
+    img_shape: (X, Y, Z) of the original image (needed for orientation flips)
+    returns: coords in the target (atlas) orientation, plus the ornt map
     """
-    # 1) Convert index-space coords to µm
-    vx = float(voxel_sizes_um.get("X", voxel_sizes_um.get("x", 1.0)))
-    vy = float(voxel_sizes_um.get("Y", voxel_sizes_um.get("y", 1.0)))
-    vz = float(voxel_sizes_um.get("Z", voxel_sizes_um.get("z", 1.0)))
-    coords_idx = df[["x", "y", "z"]].to_numpy(dtype=float)
-    coords_um = coords_idx * np.array([vx, vy, vz], dtype=float)[None, :]
-
-    # 2) Optional affine in µm space
-    if apply_affine_um is not None:
-        A = np.asarray(apply_affine_um, dtype=float)
-        if A.shape == (3, 3):
-            # 2D affine on XY; leave Z as-is
-            xy1 = np.c_[coords_um[:, :2], np.ones(len(coords_um))]
-            xy_um = (xy1 @ A.T)[:, :2]
-            coords_um = np.c_[xy_um, coords_um[:, 2]]
-        elif A.shape == (4, 4):
-            xyz1 = np.c_[coords_um, np.ones(len(coords_um))]
-            coords_um = (xyz1 @ A.T)[:, :3]
+    from_ornt = axcodes2ornt(from_axcodes)
+    to_ornt   = axcodes2ornt(to_axcodes)
+    ornt      = ornt_transform(from_ornt, to_ornt)  # rows = out axes; cols=(in_axis, dir)
+    coords = np.asarray(coords, dtype=float)
+    out = np.empty_like(coords, dtype=float)
+    for out_ax in range(3):
+        in_ax = int(ornt[out_ax, 0])
+        dirn  = int(ornt[out_ax, 1])  # +1 or -1
+        if dirn == 1:
+            out[:, out_ax] = coords[:, in_ax]
         else:
-            raise ValueError("apply_affine_um must be 3x3 (2D) or 4x4 (3D)")
+            out[:, out_ax] = (img_shape[in_ax] - 1) - coords[:, in_ax]
+    return out, ornt
 
-    # 3) Quantize to target grid
-    tx, ty, tz = map(float, target_um)
-    to_bin = _bin_method(method)
-    vox = np.stack([
-        to_bin(coords_um[:, 0] / tx),
-        to_bin(coords_um[:, 1] / ty),
-        to_bin(coords_um[:, 2] / tz),
-    ], axis=1).astype(np.int64)
-
-    out = df.copy() if keep_original_cols else pd.DataFrame(index=df.index)
-    out["i"] = vox[:, 0]
-    out["j"] = vox[:, 1]
-    out["k"] = vox[:, 2]
-
-    # 4) Aggregate counts per downsampled voxel
-    agg = (
-        out.groupby(["i", "j", "k"], as_index=False)
-           .size()
-           .rename(columns={"value": count_col})
-    )
-    return agg
-
-# --- Convenience helper to build an affine from your YAML's StitchingParameters.affineMat ---
-def affine2d_from_yaml_affineMat(affineMat_3x3: Iterable[Iterable[float]]) -> np.ndarray:
-    """
-    Returns a 3x3 homogeneous 2D affine usable as `apply_affine_um`.
-    The YAML's StitchingParameters.affineMat is already in 3x3 form.
-    """
-    A = np.array(affineMat_3x3, dtype=float)
-    if A.shape != (3, 3):
-        raise ValueError("affineMat must be 3x3")
-    return A
+def _reorient_voxsizes_mm(sample_vs_mm, ornt):
+    """permute voxel sizes to match the reoriented axes"""
+    sample_vs_mm = np.asarray(sample_vs_mm, dtype=float)
+    vs = np.empty(3, dtype=float)
+    for out_ax in range(3):
+        in_ax = int(ornt[out_ax, 0])
+        vs[out_ax] = sample_vs_mm[in_ax]
+    return vs
