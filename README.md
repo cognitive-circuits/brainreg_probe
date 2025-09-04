@@ -152,7 +152,7 @@ You may need to manually check the histology and annotate where the probe was, f
 >                └── <subject_ID>/ 
 >                    └── <brainreg outputs>
 >                    └── '<subject_ID>_manual_points.xml'   <--- (MANUALLY ANNOTATED POINTS GO HERE)
-```
+>```
 
 ## Step 1: install napari
 install `napari` following their [instructions](https://napari.org/dev/tutorials/fundamentals/installation.html). 
