@@ -170,14 +170,18 @@ It can help to view the downsampled data in 3D view (hit the box in the lower le
 ### Step 3: manually annotate probe points
 
 For the best image quality, you want to annotate the highest resolution data from the brainsaw. Here you may try using either the signal channel ID (often 2) or the reference channel used for brainreg (often 3).
+
 ```File -> Open Folder -> path/to/subject_ID/stitched_Images_100/<channel_ID> ```
+
 If prompted to 'choose reader', make sure to use `napari-builtins`. You may need to adjust the `contrast limits` and `gamma` sliders to better see the data. You may rename the layer to the subject_ID by double-clicking on the layer.
 
-Next, create a points layer and get ready to annotate. The name of the game is to try to identify probe shanks by looking at artefacts in the data. Be careful not to confuse blood vessels for a probe shank - these are often more curvy than a shank. Below we have an example from a dual-probe headstage where both probes (cambridgeneurotech) are targetting CA1 in dorsal hippocampus. One of the probes' shanks has been annotated. After annotating all visible evidence of shanks, the points should be exported to a file named `<subject_ID>_manual_points.xml` and placed in the same folder as the brainreg outputs. Now you should be able to run `pit.run_probeinterface_tracking()` again, this time with the manually annotated points being loaded and added to the `signal_df` for mapping probe coordinates to registered brain regions.
+Next, create a points layer and get ready to annotate. The name of the game is to try to identify probe shanks by looking at artefacts in the data. Be careful not to confuse blood vessels for a probe shank - these are often more curvy than a shank. Below we have an example from a dual-probe headstage where both probes (cambridgeneurotech) are targetting CA1 in dorsal hippocampus. One of the probes' shanks has been annotated. After annotating all visible evidence of shanks, the points should be exported to a file named `<subject_ID>_manual_points.xml` and placed in the same folder as the brainreg outputs.
 
 ![Figure of manual annotation](./figures/manual_annotation.png)
 
->![TIP]
+ Now you should be able to run `pit.run_probeinterface_tracking()` again, this time with the manually annotated points being loaded and added to the `signal_df` for mapping probe coordinates to registered brain regions.
+
+>[!TIP]
 > To find shank lesions, it can help to scroll through the anterior-posterior axis while looking at coronal sections of the brain region (`ctrl + scroll wheel`). 
 >Bear in mind what orientation the data is in (see note above), as the left side of the coronal section might correspond to either the left or right hemisphere of the brain.
 > While using the points tool, holding down `spacebar` will let you drag around the image.
