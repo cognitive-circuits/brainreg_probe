@@ -15,6 +15,7 @@ import brainglobe_heatmap as bgh
 
 #Set to `True` to plot straight lines in allen sample space
 SIMPLIFIED_PLOTTING = False
+ATLAS_VOXEL_SIZE = 10 #in um
 
 ## functions ##
 
@@ -50,9 +51,23 @@ def adjust_contrast(image, percentile_low=1,percentile_high = 99):
     image_stretched = (image_stretched - p_low) / (p_high - p_low)
     return image_stretched
 
-def plot_sample_data_sections(signal_data, plane_centroid,fig_and_axes= None, fix_contrast = True):
+def plot_sample_data_sections(signal_data: np.array, 
+                              plane_centroid, 
+                              manual_points: pd.DataFrame = None,
+                              probe_df: pd.DataFrame = None,
+                              fig_and_axes= None, fix_contrast = True):
     '''Plot sagittal and coronal sections of the signal data,
-    centered the centroid of the plane fit to the probe signal data.'''
+    centered the centroid of the plane fit to the probe signal data.
+    
+    Parameters:
+    ----------
+    data_dict: dict
+        Dictionary containing 'signal_data' (3D voxel data downsampled to atlas space)
+        and optionally 'manual_points' pd.dataframe with columns ['i','j','k']
+    plane_centroid: list or np.ndarray
+        [i,j,k] coordinates of the point at which the sections will be sliced through.
+    m'''
+
     sagittal = signal_data[:,:,int(plane_centroid[2])].T
     coronal = signal_data[int(plane_centroid[0]),:,:]
     #transverse = data['signal_data'][:,plane_centroid[1],:] #rarely used, but here in case
@@ -70,16 +85,30 @@ def plot_sample_data_sections(signal_data, plane_centroid,fig_and_axes= None, fi
     axes[1].imshow(coronal,cmap = 'gray')
     axes[1].axis('off')
     axes[1].set(title = 'Coronal section')
+    
+    # add manual points if they have been provided:
+    if manual_points is not None:
+        axes[0].scatter(manual_points['i'],manual_points['j'],
+                        c='white',s=1, label='manual points')
+        axes[1].scatter(manual_points['k'],manual_points['j'],
+                        c='white',s=1, label='manual points')
+    if probe_df is not None:
+        axes[0].scatter(probe_df['i'],probe_df['j'],
+                        c='r',s=1, label='probe fit', alpha = 0.3)
+        axes[1].scatter(probe_df['k'],probe_df['j'],
+                        c='r',s=1, label='probe fit', alpha = 0.3)
     return fig
 
-def plot_atlas_data_sections(probe_atlas_coords, probe_plane_centroid, voxel_size = 10,
+def plot_atlas_data_sections(probe_atlas_coords, 
+                             probe_plane_centroid, 
+                             voxel_size = ATLAS_VOXEL_SIZE,
                              fig_and_axes:tuple = None, highlight_region = None):
     probe_plane_centroid
     if fig_and_axes is None:
         fig, axes = plt.subplots(1, 2, figsize=(10, 5))
     else:
         fig, axes = fig_and_axes
-    values = {highlight_region:1}
+    values = {highlight_region:1} #you can add more regions if you want
     scene1 = bgh.Heatmap(
         values,
         position=probe_plane_centroid,

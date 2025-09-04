@@ -34,19 +34,21 @@ from sklearn.cluster import DBSCAN
 #with open('./brainreg_probe/allen_brain_atlas_info.htsv', 'r') as f:
 PREPROCESSED_BRAINREG_PATH = Path('../data/preprocessed_data/brainreg')
 ATLAS_NAME = 'allen_mouse_10um'
+VOXEL_SIZE = 10 #in um
 ALLEN_ATLAS_INFO_DF = pd.read_csv('./brainreg_probe/allen_brain_atlas_info.htsv', sep='\t')
 AXIS2ATLAS_VECTOR = {'ap':[1,0,0],'si':[0,1,0],'rl':[0,0,1], # axes in 3D space acccording to 'asr' orientation.
                      'pa':[-1,0,0],'is':[0,-1,0],'lr':[0,0,-1]} #inverses
 
 #specify information about brainreg and probes in data.
-EXAMPLE_INPUT_DICT = { 'brainreg_signal_channel':2, #required for loading signal data.
+EXAMPLE_INPUT_DICT = { 'brainreg_signal_channel':None, #commonly 2, should be set to None when there is no signal data. 
                         #specifying probe information allowing for multiple probes.
-                        'probe_info':[{'label':'ProbeA','manufacturer':'imec','name':'NP2020',},
-                                      {'label':'ProbeB','manufacturer':'imec','name':'NP2020'}],
+                        'probe_info':[{'label':'ProbeA','manufacturer':'cambridgeneurotech','name':'ASSY-236-F',},
+                                      {'label':'ProbeB','manufacturer':'cambridgeneurotech','name':'ASSY-236-F'}],
+                        'probe_depths_um':[2000,2000], #insert values in um if known, otherwise set to None and estimate from the signal data.
                         'probe_ordering_axis':'ap', #how are the probe inputs ordered anatomically?
                         'insertion_axis':['si','si'],
                         'contact_face_axis':['lr','rl'],
-                        'target_regions':['PL','CA1']
+                        'target_regions':['CA1','CA1'] # only used to highlight regions when plotting 
                         }
 
 ## Top level function ##
@@ -57,6 +59,7 @@ def run_probeinterface_tracking(subject_IDs:list = [], plotting=True):
     for each_subject in subject_IDs:
         brainreg_atlas_path = PREPROCESSED_BRAINREG_PATH/each_subject/ATLAS_NAME
         input_dict = EXAMPLE_INPUT_DICT #can make subject-level changes here if required
+        # SUGGESTION: rewrite this function with subject-level required changes here.
         try:
             print(f'Fitting probe to data from {each_subject}')
             probe_dfs, fit_params, signal_df, data = get_probe_registration_df(brainreg_atlas_path, input_dict)
@@ -69,6 +72,8 @@ def run_probeinterface_tracking(subject_IDs:list = [], plotting=True):
                 fig.suptitle(f"{each_subject} | {fit_params[idx]['probe_name']}")
                 _ = puf.plot_sample_data_sections(data['signal_data'],
                                                   fit_params[idx]['centroid'],
+                                                  signal_df[signal_df['cluster']==idx],
+                                                  probe_df.downsample_coords,
                                                   fig_and_axes=(fig,[ax[0][0],ax[0][1]]))
 
                 probe_plane_centroid = sample_coords_to_allen_space([fit_params[idx]['centroid']],data)[0]
@@ -93,37 +98,46 @@ def get_probe_registration_df(brainreg_atlas_path: Path, #the path to your subje
     print('Loading data...')
     data = get_data(brainreg_atlas_path, 
                     signal_channel = input_dict['brainreg_signal_channel'])
-    print(f'Thresholding signal...')
-    threshold_signal = threshold_signal_gamma(data['signal_data'])
-    signal_df = make_signal_df(data['signal_data'], threshold_signal)
+    if input_dict['brainreg_signal_channel'] is not None:
+        print(f'Thresholding signal...')
+        threshold_signal = threshold_signal_gamma(data['signal_data'])
+        signal_df = make_signal_df(data['signal_data'], threshold_signal)
+    else:
+        signal_df = pd.DataFrame()
+    if data.__contains__('manual_points'):
+        signal_df = pd.concat([signal_df, data['manual_points']], ignore_index=True)
     print(f'Clustering signal ({len(signal_df)} points) into {n_probes} clusters...')
-    signal_df = cluster_signal(signal_df, n_clusters=n_probes)
-    signal_df = reorder_signal_clusters(signal_df,input_dict['probe_ordering_axis'])
+    signal_df = separate_probes_from_noise(signal_df, n_probes, input_dict['probe_ordering_axis'],
+                                            DBSCAN_min_samples=100) ## OBS: May need to manually adjust this 
+    # Get brain surface:
     surface_df = get_surface_coord_df(data['boundaries'])
     # Get ready to rumble:
     probe_dfs = []
     fit_params = []
     for each_probe in range(n_probes):
         probe_df = get_probe_contacts_df(probe_info[each_probe]['manufacturer'],
-                                         probe_info[each_probe]['name'])
+                                            probe_info[each_probe]['name'])
         longer_than_wider = probe_df['probe_coords.y'].max()>probe_df['probe_coords.x'].max()
         probe_signal_df = signal_df[signal_df['cluster']==each_probe]
         print(f"Fitting {probe_info[each_probe]['label']} to signal data...")
         fitted_plane = fit_plane_to_signal(probe_signal_df,
-                                           input_dict['insertion_axis'][each_probe],
-                                           input_dict['contact_face_axis'][each_probe],
-                                           longer_than_wider)
+                                            input_dict['insertion_axis'][each_probe],
+                                            input_dict['contact_face_axis'][each_probe],
+                                            longer_than_wider)
         fitted_plane = append_surface_coord(surface_df,fitted_plane)
-        best_params_dict = optimize_probe_plane(probe_signal_df,probe_df,fitted_plane)
+        initial_params = estimate_initial_params(probe_signal_df,probe_df, fitted_plane,
+                                                    input_dict['probe_depths_um'][each_probe])
+        best_params_dict = optimize_probe_plane(probe_signal_df,probe_df,fitted_plane,initial_params)
         transformed_points = transform_2d_probe(probe_df, best_params_dict.values())
         downsampled_coords = project_2d_points_to_plane(transformed_points, fitted_plane)
         atlas_coords = sample_coords_to_allen_space(downsampled_coords.values, data)
         #return the coordinates in downsampled space 
+        
         #now append coords to the dataframe
         probe_df = probe_df[probe_df['probe_coords.y']<best_params_dict['probe_depth']]
         for coord_type, coords_data in {'downsample_coords':downsampled_coords.values,'allen_atlas_coords':atlas_coords}.items():
-            for idx, coord in enumerate(['i','j','k']):
-                probe_df[f'{coord_type}.{coord}'] = coords_data[:,idx]
+                for idx, coord in enumerate(['i','j','k']):
+                    probe_df[f'{coord_type}.{coord}'] = coords_data[:,idx]
         # append the anatomy data
         anatomy_dict = get_structure_labels(downsampled_coords.values, data)
         for label, structure_data in anatomy_dict.items():
@@ -132,7 +146,7 @@ def get_probe_registration_df(brainreg_atlas_path: Path, #the path to your subje
         probe_df['probe_name'] = probe_info[each_probe]['label']
         best_params_dict['probe_name'] = probe_info[each_probe]['label']
         best_params_dict.update({k:list(v) for k,v in fitted_plane.items()})
-
+        print(best_params_dict)
         #save out the data
         probe_df_path = (brainreg_atlas_path.parent)/f"{probe_info[each_probe]['label']}_anatomy.htsv"
         probe_df.to_csv(probe_df_path,sep='\t', index=False)
@@ -144,6 +158,7 @@ def get_probe_registration_df(brainreg_atlas_path: Path, #the path to your subje
         probe_df.columns = pd.MultiIndex.from_tuples([col.split('.') if '.' in col else (col,'') for col in probe_df.columns])
         probe_dfs.append(probe_df[['probe_coords','downsample_coords','allen_atlas_coords','structure']]) #simple reordering of columns here.. nothing to see
         fit_params.append(best_params_dict)
+
         
     return probe_dfs, fit_params, signal_df,data 
 
@@ -154,11 +169,15 @@ def get_data(brainreg_atlas_path:Path, signal_channel = 2, control_channel = 3):
     control_channel = str(control_channel); signal_channel= str(signal_channel)
     data = {} #we want to output a structured data dictionary
     # NOTE: Signal_data is what we fit the probe geometry to
-    try:
-        data.update({'signal_data' :tifffile.imread(brainreg_atlas_path/f"downsampled_{signal_channel}.tiff")})
-    except Exception as e:
-        print(f'No signal data found: \n {e}')
-        
+    if signal_channel == str(None):
+        data.update({'signal_data' :tifffile.imread(brainreg_atlas_path/f"downsampled.tiff")})
+        print('No signal channel specified - loading downsampled.tiff')
+    else:
+        try:
+            data.update({'signal_data' :tifffile.imread(brainreg_atlas_path/f"downsampled_{signal_channel}.tiff")})
+        except Exception as e:
+            print(f'No signal data found: \n {e}')
+            
     try: #look for manually annotated points:
         subject_ID = brainreg_atlas_path.parent.stem
         data.update({'manual_points': maps.get_manually_annotated_points_df(subject_ID)})
@@ -310,7 +329,8 @@ def reorder_signal_clusters(clustered_signal_df:pd.DataFrame, probe_order_axis:s
 def fit_plane_to_signal(signal_df: pd.DataFrame,
                         insertion_axis:str= 'si',
                         contact_face_axis:str= 'lr',
-                        longer_than_wider: bool = True) -> dict:
+                        longer_than_wider: bool = True,
+                        insertion_bias = 0.5) -> dict:
     """
     Fit a 2D plane to 3D points using PCA, outputting dict with centroid, normal, v_axis, u_axis, where u,v are aligned with probe width, and -depth respectively.
 
@@ -338,37 +358,73 @@ def fit_plane_to_signal(signal_df: pd.DataFrame,
     This maps x,y axes of probe coordinates to u,v axes of the plane.
     """
     points = signal_df[['i','j','k']].values
-    centroid = np.median(points,axis=0)
+    if points.shape[0] < 3:
+        raise ValueError("Need at least 3 points to fit a plane.")
+    centroid = np.median(points, axis=0)
     centered = points - centroid
-    pca = PCA(n_components=3)
-    pca.fit(centered)
-    #very cool trick here ngl.
-    normal = pca.components_[-1] #least variance direction will be orthogonal to plane.
-    v_axis = pca.components_[0] if longer_than_wider else pca.components_[1]
-    u_axis = pca.components_[1] if longer_than_wider else pca.components_[0]
-    
-    # standardise orientation of axes of plane 
-    def _cosine_similarity(a, b): #numpy doesn't have a simple cosine_similarity function for some reason.
-        return np.dot(a, b) / (np.linalg.norm(a) * np.linalg.norm(b))
 
-    # flip v_axis if in similar direction to probe depth axis (we want it to point from bottom of probe to top, so actually opposite the insertion axis)
-    v_axis = -v_axis if 0 < _cosine_similarity(v_axis, AXIS2ATLAS_VECTOR[insertion_axis]) else v_axis
-    # flip the normal if it is not in the same direction as the contact facing axis.
-    normal = -normal if 0 > _cosine_similarity(normal, AXIS2ATLAS_VECTOR[contact_face_axis]) else normal
-    # flip u_axis requires a bit more logic.
-    # we know the axis along width is orthogonal to the other two axes, so we can determine the dimension:
-    possible_v_axes = [axis_label for axis_label in AXIS2ATLAS_VECTOR.keys() if axis_label[0] not in (insertion_axis+contact_face_axis) ] #we check the first character of each string since all characters are unique.
-    # we pick the atlas axis to align to by looking at the signs of the other two axes. 
-    # If only one of the axes does not align with the atlas axis, we need to align the u_axis with the inverse of the atlas axis.
-    # we also know that if only one of the axes does not align with the atlas axis, the sum of the vector values will sum to 0.
-    only_one_axis_misaligned = sum(AXIS2ATLAS_VECTOR[insertion_axis]+AXIS2ATLAS_VECTOR[contact_face_axis])==0
-    atlas_axis_to_align_to = possible_v_axes[1] if only_one_axis_misaligned else possible_v_axes[0] #these are ordered in the dictionary as axis aligned and inverse.
-    u_axis = -u_axis if _cosine_similarity(u_axis, AXIS2ATLAS_VECTOR[atlas_axis_to_align_to]) < 0 else u_axis
-    
-    return {'centroid': centroid,
-            'v_axis': v_axis,
-            'u_axis': u_axis,
-            'normal':normal}
+    # Ideally we use a cool trick where PCA extracts length and width of the probe
+    # in practice, some probe geometries mean that alignign along diagonal explains more variance
+    # we therefore do regularised PCA that aligns more with insertion axis.
+    # sample covariance (rowvar=False -> columns are variables i,j,k)
+    S = np.cov(centered, rowvar=False)  # 3x3
+    # unit vector for the insertion axis (expects your existing mapping)
+    a = np.array(AXIS2ATLAS_VECTOR[insertion_axis]).astype(float)
+    a = a / (np.linalg.norm(a) + 1e-12)
+    # lambda scaled to total variance to keep bias dimensionless
+    lam = float(insertion_bias) * np.trace(S)
+    # regularized covariance that favors variance along insertion axis
+    S_reg = S + lam * np.outer(a, a)
+    # ---- eigen-decomposition (ascending from eigh) ----
+    # Using eigh for symmetric matrices is more stable
+    evals, evecs = np.linalg.eigh(S_reg)
+    # sort descending by eigenvalue
+    order = np.argsort(evals)[::-1]
+    evecs = evecs[:, order]
+
+    # By default, first two eigenvectors span the plane; last is the normal
+    # Decide which in-plane axis should be v vs u depending on longer_than_wider
+    # (This mirrors your original intent: v ~ length, u ~ width)
+    v_axis = evecs[:, 0] if not longer_than_wider else evecs[:, 1]
+    u_axis = evecs[:, 1] if not longer_than_wider else evecs[:, 0]
+    normal = evecs[:, 2]  # least variance direction (orthogonal to plane)
+
+    # ---- orientation standardization (keep your original logic) ----
+    def _cosine_similarity(x, y):
+        return np.dot(x, y) / (np.linalg.norm(x) * np.linalg.norm(y) + 1e-12)
+
+    # v_axis should point from bottom (deep) to top -> opposite the insertion axis direction
+    if _cosine_similarity(v_axis, AXIS2ATLAS_VECTOR[insertion_axis]) > 0:
+        v_axis = -v_axis
+
+    # normal should point the same way as the contact facing axis
+    if _cosine_similarity(normal, AXIS2ATLAS_VECTOR[contact_face_axis]) < 0:
+        normal = -normal
+
+    # Set u so that (u, v, normal) is a right-handed frame and u points "left->right"
+    # Keep your original sign logic for u:
+    possible_v_axes = [ax for ax in AXIS2ATLAS_VECTOR.keys()
+                       if ax[0] not in (insertion_axis + contact_face_axis)]
+    only_one_axis_misaligned = np.allclose(
+        AXIS2ATLAS_VECTOR[insertion_axis] + AXIS2ATLAS_VECTOR[contact_face_axis], 0
+    )
+    atlas_axis_to_align_to = possible_v_axes[1] if only_one_axis_misaligned else possible_v_axes[0]
+    if _cosine_similarity(u_axis, AXIS2ATLAS_VECTOR[atlas_axis_to_align_to]) < 0:
+        u_axis = -u_axis
+
+    # Final orthonormal cleanup to avoid small numerical drift
+    v_axis = v_axis / (np.linalg.norm(v_axis) + 1e-12)
+    u_axis = u_axis - np.dot(u_axis, v_axis) * v_axis
+    u_axis = u_axis / (np.linalg.norm(u_axis) + 1e-12)
+    normal = np.cross(u_axis, v_axis)
+    normal = normal / (np.linalg.norm(normal) + 1e-12)
+
+    return {
+        'centroid': centroid,
+        'v_axis': v_axis,
+        'u_axis': u_axis,
+        'normal': normal
+    }
 
 
 def get_surface_coord_df(boundaries_data:dict)-> pd.DataFrame:
@@ -405,14 +461,14 @@ def append_surface_coord(surface_df:pd.DataFrame, plane_dict:dict)->dict:
 
 
 # 6. Transform 2d probe contacts before projection
-def transform_2d_probe(probe_df: pd.DataFrame, params_values: dict, voxel_size_um = 10) -> pd.DataFrame:
+def transform_2d_probe(probe_df: pd.DataFrame, params_values: dict, voxel_size_um = VOXEL_SIZE) -> pd.DataFrame:
     """
     Transform 2D probe contacts by rotating and translating.
     Returns: 
     - pandas DataFrame with transformed 'probe_coords.x', 'probe_coords.y' columns.
     Params:
     - points_df: DataFrame with original 'probe_coords.x', 'probe_coords.y' columns.
-    - params: [offset_u, offset_v, theta]
+    - params: [probe_depth, brain_shrinkage_pct, probe_width_scaling, theta, offset_x]
     
     Note: we want to imagine that we are projecting the probe by its depth starting from the top of the signal.
     """
@@ -483,15 +539,15 @@ def compute_cost(signal_df: pd.DataFrame,
 
 # 9. estimate initial parameters for optimization:
 def estimate_initial_params(signal_df: pd.DataFrame, probe_df:pd.DataFrame, plane: dict,
-                            probe_depth: float = None) -> dict:
+                            probe_depth_um: float = None) -> dict:
     """ Returns dictionary with good initial parameters for optimization.
     Will by default estimate probe_depth from signal"""
     
-    if probe_depth is None:
+    if probe_depth_um is None:
         #Estimate depth of the probe (in sample space):
         centered_points = signal_df[['i', 'j', 'k']].values - plane['centroid']
         u_coords = np.dot(centered_points, plane['v_axis'])  # Projection onto u-axis, aligned with probe depth
-        probe_depth = np.percentile(u_coords,99.9) - np.percentile(u_coords,0.1)  # Range of u-coordinates gives depth of probe
+        probe_depth_um = VOXEL_SIZE*(np.percentile(u_coords,99.9) - np.percentile(u_coords,0.1))  # Range of u-coordinates gives depth of probe
         
     #estimate the shrinkage of the brain by fitting iteratively and choosing best parameters
     #we can set initial offset and rotation to 0.0 thanks to careful alignment of the plane and projection centered on signal 
@@ -499,11 +555,11 @@ def estimate_initial_params(signal_df: pd.DataFrame, probe_df:pd.DataFrame, plan
     min_cost = 1e42 #start very high
     for brain_shrinkage_pct in np.linspace(0,5,6): #try 0,1,2,...15 pct shrinkage
         for probe_width_scale in np.linspace(0.8,1,11):
-            adjusted_probe_depth = 10*probe_depth * (100 / (100 - brain_shrinkage_pct))  # scale to um and adjust for brain shrinkage.
+            adjusted_probe_depth = probe_depth_um * (100 / (100 - brain_shrinkage_pct))  # scale to um and adjust for brain shrinkage.
             params = {'probe_depth':adjusted_probe_depth,  # Adjust depth for brain shrinkage in histology sample space
                     'brain_shrinkage_pct':brain_shrinkage_pct,
                     'probe_width_scaling':probe_width_scale,
-                    'theta':1e-3,  # small nonzero rotation initially,
+                    'theta':1e-10,  # small nonzero rotation initially,
                     'offset_x': 1,}   # small offset initially
             cost = compute_cost(signal_df,probe_df,plane,params.values())
             if cost<min_cost:
@@ -518,12 +574,14 @@ def optimize_probe_plane(signal_df: pd.DataFrame,
                          initial_params: dict = None,
                          bounds: dict = {'depth':(500,6000),#depth
                                         'brain_shrinkage_pct':(0,5), #account for some pct brain shrinkage in signal positions
-                                        'probe_width_scaling':(0.8,1), #shank width compression for NPXL2.0
-                                        'rotation':(-np.pi/2, np.pi/2), #rotation
+                                        'probe_width_scaling':(0.9,1), #shank width compression for NPXL2.0
+                                        'rotation':(-1e-10, 1e-10), #rotation
                                         'offset_x':(-1000, 1000), #offset along probe width in um
                                         }) -> dict:
     if initial_params is None:
         initial_params = estimate_initial_params(signal_df,probe_df, plane)
+    else: #if initial parameters are given, assume fixed probe depth.
+        bounds['depth'] = (initial_params['probe_depth'], initial_params['probe_depth'])
     def cost(param_values): #must be given as a function of a list of parameter values
         return compute_cost(signal_df, probe_df, plane, param_values)
     res = minimize(cost, 
