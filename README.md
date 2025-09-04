@@ -154,10 +154,10 @@ You may need to manually check the histology and annotate where the probe was, f
 >                    └── '<subject_ID>_manual_points.xml'   <--- (MANUALLY ANNOTATED POINTS GO HERE)
 ```
 
-### Step 1: install napari
+## Step 1: install napari
 install `napari` following their [instructions](https://napari.org/dev/tutorials/fundamentals/installation.html). 
 
-### Step 2: check brainreg outputs
+## Step 2: check brainreg outputs
 Please double-check that the signal really is missing by opening the downsampled data. We refer to [brainglobe's tutorial](https://brainglobe.info/tutorials/tutorial-whole-brain-registration.html#).
 You may have to specifically open the signal file, for example if the signal was in channel 2:
 ```File -> Open File(s) as stack -> path/to/subject_ID/allen_mouse_10um/downsampled_2.tiff```
@@ -166,7 +166,7 @@ This is also a good opportunity to check (or marvel at the fact) that brainreg h
 
 It can help to view the downsampled data in 3D view (hit the box in the lower left corner of napari).
 
-### Step 3: manually annotate probe points
+## Step 3: manually annotate probe points
 
 For the best image quality, you want to annotate the highest resolution data from the brainsaw. Here you may try using either the signal channel ID (often 2) or the reference channel used for brainreg (often 3).
 ```File -> Open Folder -> path/to/subject_ID/stitched_Images_100/<channel_ID> ```
@@ -180,6 +180,7 @@ Next, create a points layer and get ready to annotate. The name of the game is t
 > To find shank lesions, it can help to scroll through the anterior-posterior axis while looking at coronal sections of the brain region (`ctrl + scroll wheel`). 
 >Bear in mind what orientation the data is in (see note above), as the left side of the coronal section might correspond to either the left or right hemisphere of the brain.
 > While using the points tool, holding down `spacebar` will let you drag around the image.
+
 # Citations
 
 If you found this little repo helpful, please make sure to properly cite the software used! The current repository doesn't have a paper to reference, but relies on key resources, so consider citing code using a couple sentences like the following:
