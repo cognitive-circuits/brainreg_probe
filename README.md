@@ -154,19 +154,20 @@ You may need to manually check the histology and annotate where the probe was, f
 >                    └── '<subject_ID>_manual_points.xml'   <--- (MANUALLY ANNOTATED POINTS GO HERE)
 >```
 
-## Step 1: install napari
+### Step 1: install napari
 install `napari` following their [instructions](https://napari.org/dev/tutorials/fundamentals/installation.html). 
 
-## Step 2: check brainreg outputs
+### Step 2: check brainreg outputs
 Please double-check that the signal really is missing by opening the downsampled data. We refer to [brainglobe's tutorial](https://brainglobe.info/tutorials/tutorial-whole-brain-registration.html#).
 You may have to specifically open the signal file, for example if the signal was in channel 2:
+
 ```File -> Open File(s) as stack -> path/to/subject_ID/allen_mouse_10um/downsampled_2.tiff```
 
 This is also a good opportunity to check (or marvel at the fact) that brainreg has identified boundaries and brain regions correctly.
 
 It can help to view the downsampled data in 3D view (hit the box in the lower left corner of napari).
 
-## Step 3: manually annotate probe points
+### Step 3: manually annotate probe points
 
 For the best image quality, you want to annotate the highest resolution data from the brainsaw. Here you may try using either the signal channel ID (often 2) or the reference channel used for brainreg (often 3).
 ```File -> Open Folder -> path/to/subject_ID/stitched_Images_100/<channel_ID> ```
