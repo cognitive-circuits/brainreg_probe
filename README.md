@@ -126,6 +126,7 @@ There are three main issues that can arise:
 - 1: bad signal
 - 2: poor clustering
 - 3: bad depth estimation
+
 To identify the culprit, we suggest running the `get_probe_registration_df()` function line-by-line as in the 'Probefitting methodological details' section of the interactive notebook. After running this, it can be helpful to get an interactive plot of the signal using `puf.plot_3d(signal_df)`.
 You may also want to plot each cluster of the signal, to check whether there could be an issue there. Lastly, if there is poor depth estimation, we suggest manually inputting the depth of the probe, which will then be fixed.
 
