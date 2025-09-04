@@ -121,20 +121,65 @@ pit.run_probeinterface_tracking()
 
 
 ---
+# Debugging failed registrations
+There are three main issues that can arise:
+- 1: bad signal
+- 2: poor clustering
+- 3: bad depth estimation
+To identify the culprit, we suggest running the `get_probe_registration_df()` function line-by-line as in the 'Probefitting methodological details' section of the interactive notebook. After running this, it can be helpful to get an interactive plot of the signal using `puf.plot_3d(signal_df)`.
+You may also want to plot each cluster of the signal, to check whether there could be an issue there. Lastly, if there is poor depth estimation, we suggest manually inputting the depth of the probe, which will then be fixed.
+
+If the issue is bad signal (1), see instructions for manual annotation of points below. 
+
+If the issue is poor clustering (2), try adjusting `DBSCAN_min_samples` on the data for the single subject. You may have a large cluster of noise that you want to ignore (increase DBSCAN_min_samples) or very few datapoints of signal (decrease DBSCAN_min_samples).
+
+If the issue is bad depth estimation (3), try manually setting `probe_depth_um` in the `input_dict` for that subject according to the depth estimated during surgery. 
+
+If you encounter any other issue, please raise an issue on this repository for some help!
 
 # Manual data check and annotations
-You may need to manually check the histology and annotate where the probe was, for example in case of a poor Dil signal.
-This will have to be done locally. [STILL FINALISING DOCUMENTATION HERE]
+You may need to manually check the histology and annotate where the probe was, for example in case of poor (or no) Dil signal. This will have to be done locally. It is assumed that you have already run brainreg and have local copies of both the inputs and outputs to brainreg.
+>```
+>.
+>└── experiment/ 
+>    └── data/ 
+>        ├── raw_data/
+>        │   └── histology/    <-- (RAW_HISTOLOGY_PATH)
+>        │       └── <subject_ID>/
+>        │           └── <brainsaw outputs = brainreg inputs>
+>        └── preprocessed_data/
+>            └── brainreg/    <-- (PREPROCESSED_BRAINREG_PATH)
+>                └── <subject_ID>/ 
+>                    └── <brainreg outputs>
+>                    └── '<subject_ID>_manual_points.xml'   <--- (MANUALLY ANNOTATED POINTS GO HERE)
+```
 
 ### Step 1: install napari
 install `napari` following their [instructions](https://napari.org/dev/tutorials/fundamentals/installation.html). 
 
-### Step 2: [TODO]
+### Step 2: check brainreg outputs
+Please double-check that the signal really is missing by opening the downsampled data. We refer to [brainglobe's tutorial](https://brainglobe.info/tutorials/tutorial-whole-brain-registration.html#).
+You may have to specifically open the signal file, for example if the signal was in channel 2:
+```File -> Open File(s) as stack -> path/to/subject_ID/allen_mouse_10um/downsampled_2.tiff```
 
-You may run `brainreg` on a local machine, making sure to use the following command:
-```brainreg <input_path> <output_path> --additional <dye_channel_path> -v <Z voxel size> <Y voxel size> <X voxel size> --orientation <orientation> --atlas allen_mouse_10um```
-with `input_path` pointing to a reference channel (usually 3 or green).
+This is also a good opportunity to check (or marvel at the fact) that brainreg has identified boundaries and brain regions correctly.
 
+It can help to view the downsampled data in 3D view (hit the box in the lower left corner of napari).
+
+### Step 3: manually annotate probe points
+
+For the best image quality, you want to annotate the highest resolution data from the brainsaw. Here you may try using either the signal channel ID (often 2) or the reference channel used for brainreg (often 3).
+```File -> Open Folder -> path/to/subject_ID/stitched_Images_100/<channel_ID> ```
+If prompted to 'choose reader', make sure to use `napari-builtins`. You may need to adjust the `contrast limits` and `gamma` sliders to better see the data. You may rename the layer to the subject_ID by double-clicking on the layer.
+
+Next, create a points layer and get ready to annotate. The name of the game is to try to identify probe shanks by looking at artefacts in the data. Be careful not to confuse blood vessels for a probe shank - these are often more curvy than a shank. Below we have an example from a dual-probe headstage where both probes (cambridgeneurotech) are targetting CA1 in dorsal hippocampus. One of the probes' shanks has been annotated. After annotating all visible evidence of shanks, the points should be exported to a file named `<subject_ID>_manual_points.xml` and placed in the same folder as the brainreg outputs. Now you should be able to run `pit.run_probeinterface_tracking()` again, this time with the manually annotated points being loaded and added to the `signal_df` for mapping probe coordinates to registered brain regions.
+
+![Figure of manual annotation](./figures/manual_annotation.png)
+
+>![TIP]
+> To find shank lesions, it can help to scroll through the anterior-posterior axis while looking at coronal sections of the brain region (`ctrl + scroll wheel`). 
+>Bear in mind what orientation the data is in (see note above), as the left side of the coronal section might correspond to either the left or right hemisphere of the brain.
+> While using the points tool, holding down `spacebar` will let you drag around the image.
 # Citations
 
 If you found this little repo helpful, please make sure to properly cite the software used! The current repository doesn't have a paper to reference, but relies on key resources, so consider citing code using a couple sentences like the following:

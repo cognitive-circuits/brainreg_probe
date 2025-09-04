@@ -50,7 +50,7 @@ def get_manually_annotated_points_df(subject_ID: str) -> pd.DataFrame:
     subject_paths = path_df[path_df.subject_ID == subject_ID].iloc[0]
     
     recipe_path = Path(subject_paths.recipe_path)
-    manual_path = Path(subject_paths.output_path.parent) / f'{subject_paths.subject_ID}_manual.xml'
+    manual_path = Path(subject_paths.output_path.parent) / f'{subject_paths.subject_ID}_manual_points.xml'
     
     # Load the manually annotated points from XML
     try:
