@@ -38,13 +38,15 @@ VOXEL_SIZE = 10 #in um
 ALLEN_ATLAS_INFO_DF = pd.read_csv('./brainreg_probe/allen_brain_atlas_info.htsv', sep='\t')
 AXIS2ATLAS_VECTOR = {'ap':[1,0,0],'si':[0,1,0],'rl':[0,0,1], # axes in 3D space acccording to 'asr' orientation.
                      'pa':[-1,0,0],'is':[0,-1,0],'lr':[0,0,-1]} #inverses
+# option to split probes by probe ordering axis instead of by dbscan clustering.
+ORDER_SPLIT = False #can be useful when two probes are very close to each other.
 
 #specify information about brainreg and probes in data.
-EXAMPLE_INPUT_DICT = { 'brainreg_signal_channel':None, #commonly 2, should be set to None when there is no signal data. 
+EXAMPLE_INPUT_DICT = { 'brainreg_signal_channel':2, #commonly 2, should be set to None if there is no signal data (purely manual annotation). 
                         #specifying probe information allowing for multiple probes.
-                        'probe_info':[{'label':'ProbeA','manufacturer':'cambridgeneurotech','name':'ASSY-236-F',},
-                                      {'label':'ProbeB','manufacturer':'cambridgeneurotech','name':'ASSY-236-F'}],
-                        'probe_depths_um':[2000,2000], #insert values in um if known, otherwise set to None and estimate from the signal data.
+                        'probe_info':[{'label':'ProbeA','manufacturer':'imec','name':'NP2020'},
+                                      {'label':'ProbeB','manufacturer':'imec','name':'NP2020'}],
+                        'probe_depths_um':[None,None], #insert values in um if known, otherwise set to None and estimate from the signal data.
                         'probe_ordering_axis':'ap', #how are the probe inputs ordered anatomically?
                         'insertion_axis':['si','si'],
                         'contact_face_axis':['lr','rl'],
@@ -70,19 +72,24 @@ def run_probeinterface_tracking(subject_IDs:list = [], plotting=True):
             for idx, probe_df in enumerate(probe_dfs):
                 fig, ax = puf.plt.subplots(2,2, figsize = (8,5), width_ratios=[1.5,1])
                 fig.suptitle(f"{each_subject} | {fit_params[idx]['probe_name']}")
+                if data.__contains__('manual_points'):
+                    points_used_for_fit = signal_df[signal_df['cluster']==idx]
+                else:
+                    points_used_for_fit = None
                 _ = puf.plot_sample_data_sections(data['signal_data'],
-                                                  fit_params[idx]['centroid'],
-                                                  signal_df[signal_df['cluster']==idx],
-                                                  probe_df.downsample_coords,
-                                                  fig_and_axes=(fig,[ax[0][0],ax[0][1]]))
-
-                probe_plane_centroid = sample_coords_to_allen_space([fit_params[idx]['centroid']],data)[0]
+                                                fit_params[idx]['centroid'],
+                                                points_used_for_fit,            #REMOVE THIS IF YOU WANT TO JUST PLOT THE Dil SIGNAL
+                                                probe_df.downsample_coords,     #REMOVE THIS IF YOU WANT TO JUST PLOT THE Dil SIGNAL
+                                                fig_and_axes=(fig,[ax[0][0],ax[0][1]]))
+                allen_plane_centroid = sample_coords_to_allen_space([fit_params[idx]['centroid']],
+                                                                        data)[0]
                 _ = puf.plot_atlas_data_sections(probe_df.allen_atlas_coords.values,
-                                                 probe_plane_centroid,
-                                                 fig_and_axes = (fig,[ax[1][0],ax[1][1]]),
-                                                 highlight_region = input_dict['target_regions'][idx])
+                                                    allen_plane_centroid,
+                                                    fig_and_axes = (fig,[ax[1][0],ax[1][1]]),
+                                                    highlight_region=input_dict['target_regions'][idx])
                 fig_path = PREPROCESSED_BRAINREG_PATH/each_subject/f"{fit_params[idx]['probe_name']}_sections.png"
                 fig.savefig(fig_path)
+
                 print(f'Saved section plots to:\n {fig_path}')
     return None 
 
@@ -107,7 +114,9 @@ def get_probe_registration_df(brainreg_atlas_path: Path, #the path to your subje
     if data.__contains__('manual_points'):
         signal_df = pd.concat([signal_df, data['manual_points']], ignore_index=True)
     print(f'Clustering signal ({len(signal_df)} points) into {n_probes} clusters...')
-    signal_df = separate_probes_from_noise(signal_df, n_probes, input_dict['probe_ordering_axis'],
+    signal_df = separate_probes_from_noise(signal_df, 
+                                           n_probes, 
+                                           input_dict['probe_ordering_axis'],
                                             DBSCAN_min_samples=100) ## OBS: May need to manually adjust this 
     # Get brain surface:
     surface_df = get_surface_coord_df(data['boundaries'])
@@ -125,9 +134,8 @@ def get_probe_registration_df(brainreg_atlas_path: Path, #the path to your subje
                                             input_dict['contact_face_axis'][each_probe],
                                             longer_than_wider)
         fitted_plane = append_surface_coord(surface_df,fitted_plane)
-        initial_params = estimate_initial_params(probe_signal_df,probe_df, fitted_plane,
-                                                    input_dict['probe_depths_um'][each_probe])
-        best_params_dict = optimize_probe_plane(probe_signal_df,probe_df,fitted_plane,initial_params)
+        best_params_dict = optimize_probe_plane(probe_signal_df,probe_df,fitted_plane,
+                                                    fixed_depth_um = input_dict['probe_depths_um'][each_probe])
         transformed_points = transform_2d_probe(probe_df, best_params_dict.values())
         downsampled_coords = project_2d_points_to_plane(transformed_points, fitted_plane)
         atlas_coords = sample_coords_to_allen_space(downsampled_coords.values, data)
@@ -204,7 +212,6 @@ def threshold_signal_gamma(data: np.ndarray,
     - data: np.ndarray() [i,j,k]  voxel data with dye signal.
     - gamma: float, gamma exponent to apply to the data before thresholding. Default is 1.5.
     '''
-    assert data.__contains__['signal_data'], 'data dict must contain "signal_data" with 3D voxel data'
     norm = data.astype(np.float32)
     norm -= norm.min(); norm /= norm.max()
     corr = norm ** gamma
@@ -243,24 +250,27 @@ def separate_probes_from_noise(signal_df: pd.DataFrame,
                                DBSCAN_min_samples=100):
     '''Separate signal into data. This applies cluster_signal() and reorder_signal_clusters() functions to signal data.'''
     points = signal_df[['i','j','k']].values
-    if n_probes==2: # When there are just two probes, 
+    df = signal_df.copy()
+    if n_probes==2 and ORDER_SPLIT: # When there are just two probes, 
         clustered_probes = []
         for i in range(n_probes):
         # we have an advantage that we can separate two probes along probe ordering axis
         # then cluster each subset of points to denoise, and at the end append and reorder.
             centroid = np.median(points,axis=0)
-            axis_idx = [x!=0 for x in AXIS2ATLAS_VECTOR['lr']] # True for the axis that is ordered
-            probe_mask = points[:,axis_idx]<centroid[axis_idx] # <- example for separating along the i axisx
-            clustered_probe_df = cluster_signal(signal_df.iloc[probe_mask[:,0]], n_clusters=1)
+            axis_idx = [x!=0 for x in AXIS2ATLAS_VECTOR[probe_ordering_axis]] # True for the axis that is ordered
+            probe_mask = points[:,axis_idx]<centroid[axis_idx] # shaped (n_points,1)
+            clustered_probe_df = cluster_signal(df.iloc[probe_mask[:,0]].copy(), #weird indexing here just due to mask shape (n_points,1)
+                                                n_clusters=1,
+                                                eps = DBSCAN_eps, min_samples = DBSCAN_min_samples)
             clustered_probe_df.loc[clustered_probe_df['cluster']==0,'cluster'] = i
             clustered_probes.append(clustered_probe_df)
-        signal_df = pd.concat(clustered_probes, ignore_index=True)
-        signal_df = reorder_signal_clusters(signal_df,probe_ordering_axis)
+        df = pd.concat(clustered_probes, ignore_index=True)
+        df = reorder_signal_clusters(df,probe_ordering_axis)
     else:
         #if just one probe, or more than two probes, we have to do it all in one go.
-        signal_df = cluster_signal(signal_df, n_clusters=n_probes, eps=DBSCAN_eps, min_samples=DBSCAN_min_samples)
-        signal_df = reorder_signal_clusters(signal_df,probe_ordering_axis)
-    return signal_df
+        df = cluster_signal(df, n_clusters=n_probes, eps=DBSCAN_eps, min_samples=DBSCAN_min_samples)
+        df = reorder_signal_clusters(df,probe_ordering_axis)
+    return df
     
 def cluster_signal(df, n_clusters:int, eps=50, min_samples=100,):
     """
@@ -309,7 +319,7 @@ def cluster_signal(df, n_clusters:int, eps=50, min_samples=100,):
     df_copy['cluster'] = labels
     return df_copy
 
-def reorder_signal_clusters(clustered_signal_df:pd.DataFrame, probe_order_axis:str):
+def reorder_signal_clusters(df:pd.DataFrame, probe_order_axis:str):
     '''Returns array of cluster labels ordered along the probe_order_axis.
     Params:
     ------
@@ -317,12 +327,12 @@ def reorder_signal_clusters(clustered_signal_df:pd.DataFrame, probe_order_axis:s
         df with 'i','j','k' columns for voxel indices and 'cluster' column for cluster labels.
     '''
     #we take the median coordinate for each non-noise cluster
-    median_cluster_coords = clustered_signal_df.groupby('cluster').median(['i','j','k'])[['i','j','k']].loc[0:].values
+    median_cluster_coords = df.groupby('cluster').median(['i','j','k'])[['i','j','k']].loc[0:].values
     #then we project it onto the axis, and order them according to size along the axis.
     cluster_order = np.argsort(np.dot(median_cluster_coords,AXIS2ATLAS_VECTOR[probe_order_axis]))
     for i in range(len(cluster_order)):
-        clustered_signal_df.loc[clustered_signal_df['cluster']==i,'cluster'] = cluster_order[i]
-    return clustered_signal_df
+        df.loc[df['cluster']==i,'cluster'] = cluster_order[i]
+    return df
 
 
 # 5. Fit plane to signal via PCA
@@ -330,7 +340,7 @@ def fit_plane_to_signal(signal_df: pd.DataFrame,
                         insertion_axis:str= 'si',
                         contact_face_axis:str= 'lr',
                         longer_than_wider: bool = True,
-                        insertion_bias = 0.5) -> dict:
+                        insertion_bias = 0.01) -> dict:
     """
     Fit a 2D plane to 3D points using PCA, outputting dict with centroid, normal, v_axis, u_axis, where u,v are aligned with probe width, and -depth respectively.
 
@@ -340,7 +350,7 @@ def fit_plane_to_signal(signal_df: pd.DataFrame,
     - contact_axis: str() specifying axis along which the probe contacts are facing
     - insertion_axis: str() specifying axis along which the probe was inserted
     - longer_than_wider: bool, if True (as for neuropixel probes), assumes the probe is longer than it is wide.
-    
+    - insertion_bias: float (0 to 1), indicating how much to bias v_axis towards insertion_axis.
     Returns: dict() with
     ------
     - centroid: np.array() [i,j,k] coordinates in sample space corresponding to the centre of the signal 
@@ -383,10 +393,8 @@ def fit_plane_to_signal(signal_df: pd.DataFrame,
     evecs = evecs[:, order]
 
     # By default, first two eigenvectors span the plane; last is the normal
-    # Decide which in-plane axis should be v vs u depending on longer_than_wider
-    # (This mirrors your original intent: v ~ length, u ~ width)
-    v_axis = evecs[:, 0] if not longer_than_wider else evecs[:, 1]
-    u_axis = evecs[:, 1] if not longer_than_wider else evecs[:, 0]
+    v_axis = evecs[:, 0] if longer_than_wider else evecs[:, 1]
+    u_axis = evecs[:, 1] if longer_than_wider else evecs[:, 0]
     normal = evecs[:, 2]  # least variance direction (orthogonal to plane)
 
     # ---- orientation standardization (keep your original logic) ----
@@ -473,8 +481,8 @@ def transform_2d_probe(probe_df: pd.DataFrame, params_values: dict, voxel_size_u
     Note: we want to imagine that we are projecting the probe by its depth starting from the top of the signal.
     """
     probe_depth, brain_shrinkage_pct, probe_width_scaling, theta, offset_x,  = params_values  # transformation parameters
-    transformed_df = probe_df.copy() #scale by the voxel size in micrometers
-    transformed_df = transformed_df[transformed_df['probe_coords.y'] <= probe_depth]  # filter by depth and then rescale
+    transformed_df = probe_df.copy() 
+    transformed_df = transformed_df[transformed_df['probe_coords.y'] <= probe_depth]  # filter by depth
     pts2d = transformed_df[['probe_coords.x', 'probe_coords.y']].values.astype(float)
     # Center the probe points before rescaling
     pts2d[:, 0] -= pts2d[:, 0].max() / 2  # center x
@@ -571,17 +579,19 @@ def estimate_initial_params(signal_df: pd.DataFrame, probe_df:pd.DataFrame, plan
 def optimize_probe_plane(signal_df: pd.DataFrame,
                          probe_df: pd.DataFrame,
                          plane: dict,
-                         initial_params: dict = None,
+                         fixed_depth_um: float = None,
                          bounds: dict = {'depth':(500,6000),#depth
                                         'brain_shrinkage_pct':(0,5), #account for some pct brain shrinkage in signal positions
-                                        'probe_width_scaling':(0.9,1), #shank width compression for NPXL2.0
-                                        'rotation':(-1e-10, 1e-10), #rotation
+                                        'probe_width_scaling':(0.8,1), #shank width compression for NPXL2.0
+                                        'rotation':(-np.pi/2, np.pi/2), #rotation
                                         'offset_x':(-1000, 1000), #offset along probe width in um
                                         }) -> dict:
-    if initial_params is None:
+    if fixed_depth_um is None:
         initial_params = estimate_initial_params(signal_df,probe_df, plane)
     else: #if initial parameters are given, assume fixed probe depth.
-        bounds['depth'] = (initial_params['probe_depth'], initial_params['probe_depth'])
+        initial_params = estimate_initial_params(signal_df,probe_df, plane, 
+                                                 probe_depth_um = fixed_depth_um)
+        bounds['depth'] = (fixed_depth_um, fixed_depth_um)
     def cost(param_values): #must be given as a function of a list of parameter values
         return compute_cost(signal_df, probe_df, plane, param_values)
     res = minimize(cost, 

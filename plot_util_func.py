@@ -94,9 +94,9 @@ def plot_sample_data_sections(signal_data: np.array,
                         c='white',s=1, label='manual points')
     if probe_df is not None:
         axes[0].scatter(probe_df['i'],probe_df['j'],
-                        c='r',s=1, label='probe fit', alpha = 0.3)
+                        c='r',s=1, label='probe fit', alpha = 0.05)
         axes[1].scatter(probe_df['k'],probe_df['j'],
-                        c='r',s=1, label='probe fit', alpha = 0.3)
+                        c='r',s=1, label='probe fit', alpha = 0.05)
     return fig
 
 def plot_atlas_data_sections(probe_atlas_coords, 
