@@ -190,7 +190,7 @@ def get_data(brainreg_atlas_path:Path, signal_channel = 2, control_channel = 3):
         subject_ID = brainreg_atlas_path.parent.stem
         data.update({'manual_points': maps.get_manually_annotated_points_df(subject_ID)})
     except Exception as e:
-        print(f'No manual points found: \n {e}')
+        print(f'No manual points found.')
     #then we need the atlas volume id's in sample space coordinates (we map these using ALLEN_ATLAS_INFO_DF)
     data.update({'atlas_registration_data':tifffile.imread(brainreg_atlas_path/"registered_atlas.tiff")})
     # NOTE: loading data to transform 3D sample space coordinates to allan atlas coordinates
