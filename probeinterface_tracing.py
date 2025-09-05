@@ -393,10 +393,8 @@ def fit_plane_to_signal(signal_df: pd.DataFrame,
     evecs = evecs[:, order]
 
     # By default, first two eigenvectors span the plane; last is the normal
-    # Decide which in-plane axis should be v vs u depending on longer_than_wider
-    # (This mirrors your original intent: v ~ length, u ~ width)
-    v_axis = evecs[:, 0] if not longer_than_wider else evecs[:, 1]
-    u_axis = evecs[:, 1] if not longer_than_wider else evecs[:, 0]
+    v_axis = evecs[:, 0] if longer_than_wider else evecs[:, 1]
+    u_axis = evecs[:, 1] if longer_than_wider else evecs[:, 0]
     normal = evecs[:, 2]  # least variance direction (orthogonal to plane)
 
     # ---- orientation standardization (keep your original logic) ----
