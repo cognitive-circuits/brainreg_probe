@@ -52,7 +52,7 @@ The tutorial here is meant to supplement this notebook.
 
 - Navigate to your code folder and clone the current repository:
 ```
-git clone https://github.com/charlesdgburns/brainreg_probe.git
+git clone https://github.com/cognitive-circuits/brainreg_probe.git
 ```
 
 - Next, you want to set up a a [conda](https://www.anaconda.com/docs/getting-started/miniconda/install) environment, which will be called `histology` and contains all the required python packages:
